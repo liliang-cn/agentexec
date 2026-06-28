@@ -31,23 +31,3 @@ func mapString(m map[string]any, key string) string {
 	}
 	return ""
 }
-
-func mapObject(m map[string]any, key string) map[string]any {
-	if v, ok := m[key].(map[string]any); ok {
-		return v
-	}
-	return nil
-}
-
-// mapInt64 coerces a JSON number (float64) or integer to int64.
-func mapInt64(m map[string]any, key string) int64 {
-	switch v := m[key].(type) {
-	case float64:
-		return int64(v)
-	case int64:
-		return v
-	case int:
-		return int64(v)
-	}
-	return 0
-}
