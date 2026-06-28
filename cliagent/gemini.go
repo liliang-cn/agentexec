@@ -50,10 +50,8 @@ func (s *geminiSession) ParseChunk(chunk []byte) ([]Event, error) {
 
 func (s *geminiSession) SessionID() string { return "" }
 
-func (s *geminiSession) Finalize(_ context.Context, full []byte, exitCode int) (Result, []Event, error) {
-	lines := s.lb.Feed(full)
-	lines = append(lines, s.lb.Flush()...)
-	tail := mapJSONLines(lines, s.mapGeminiEvent)
+func (s *geminiSession) Finalize(_ context.Context, _ []byte, exitCode int) (Result, []Event, error) {
+	tail := mapJSONLines(s.lb.Flush(), s.mapGeminiEvent)
 	return Result{ExitCode: exitCode, Summary: s.summary, Usage: s.usage}, tail, nil
 }
 

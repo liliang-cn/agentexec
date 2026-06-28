@@ -102,10 +102,8 @@ func (s *claudeSession) ParseChunk(chunk []byte) ([]Event, error) {
 
 func (s *claudeSession) SessionID() string { return s.sessionID }
 
-func (s *claudeSession) Finalize(_ context.Context, full []byte, exitCode int) (Result, []Event, error) {
-	lines := s.lb.Feed(full)
-	lines = append(lines, s.lb.Flush()...)
-	tail := mapJSONLines(lines, s.mapClaudeEventWithUsage)
+func (s *claudeSession) Finalize(_ context.Context, _ []byte, exitCode int) (Result, []Event, error) {
+	tail := mapJSONLines(s.lb.Flush(), s.mapClaudeEventWithUsage)
 	final := s.usage
 	if !s.sawResult {
 		final.InputTokens = s.fallback.InputTokens

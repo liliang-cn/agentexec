@@ -145,10 +145,13 @@ func TestClaudeSystemFrameCarriesRaw(t *testing.T) {
 func TestClaudeUsageResultCanonical(t *testing.T) {
 	s := newClaudeAAS()
 	s.ParseChunk([]byte(`{"type":"assistant","message":{"usage":{"input_tokens":3,"output_tokens":1}}}` + "\n"))
-	res, _, _ := s.Finalize(context.Background(),
-		[]byte(`{"type":"result","result":"done","usage":{"input_tokens":10,"output_tokens":4,"cache_read_input_tokens":2},"total_cost_usd":0.05}`+"\n"), 0)
+	s.ParseChunk([]byte(`{"type":"result","result":"done","usage":{"input_tokens":10,"output_tokens":4,"cache_read_input_tokens":2},"total_cost_usd":0.05}` + "\n"))
+	res, _, _ := s.Finalize(context.Background(), nil, 0)
 	if res.Usage.InputTokens != 10 || res.Usage.OutputTokens != 4 || res.Usage.CacheTokens != 2 || res.Usage.EstimatedCostUSD != 0.05 {
 		t.Fatalf("usage=%+v", res.Usage)
+	}
+	if res.Summary != "done" {
+		t.Fatalf("summary=%q", res.Summary)
 	}
 }
 

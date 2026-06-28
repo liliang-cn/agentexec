@@ -35,8 +35,8 @@ func TestGeminiInitAndResult(t *testing.T) {
 	if m := findEvent(ev, EventAgentMessage); m == nil || m.Payload["role"] != "system" || m.Payload["raw"] == nil {
 		t.Fatalf("init=%v", ev)
 	}
-	res, _, _ := s.Finalize(context.Background(),
-		[]byte(`{"type":"result","status":"success","stats":{"input_tokens":50,"output_tokens":20,"cached":5}}`+"\n"), 0)
+	s.ParseChunk([]byte(`{"type":"result","status":"success","stats":{"input_tokens":50,"output_tokens":20,"cached":5}}` + "\n"))
+	res, _, _ := s.Finalize(context.Background(), nil, 0)
 	if res.Usage.Model != "auto-gemini-3" || res.Usage.InputTokens != 50 || res.Usage.OutputTokens != 20 || res.Usage.CacheTokens != 5 {
 		t.Fatalf("usage=%+v", res.Usage)
 	}

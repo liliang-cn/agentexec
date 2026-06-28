@@ -62,8 +62,8 @@ func TestCodexAssistantAndUsage(t *testing.T) {
 	if m := findEvent(ev, EventAgentMessage); m == nil || m.Payload["text"] != "All set" {
 		t.Fatalf("msg=%v", ev)
 	}
-	res, _, _ := s.Finalize(context.Background(),
-		[]byte(`{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":40,"cached_input_tokens":12,"reasoning_output_tokens":8}}`+"\n"), 0)
+	s.ParseChunk([]byte(`{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":40,"cached_input_tokens":12,"reasoning_output_tokens":8}}` + "\n"))
+	res, _, _ := s.Finalize(context.Background(), nil, 0)
 	if res.Usage.InputTokens != 100 || res.Usage.OutputTokens != 48 || res.Usage.CacheTokens != 12 {
 		t.Fatalf("usage=%+v", res.Usage)
 	}

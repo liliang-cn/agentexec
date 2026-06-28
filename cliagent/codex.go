@@ -55,10 +55,8 @@ func (s *codexSession) ParseChunk(chunk []byte) ([]Event, error) {
 
 func (s *codexSession) SessionID() string { return s.threadID }
 
-func (s *codexSession) Finalize(_ context.Context, full []byte, exitCode int) (Result, []Event, error) {
-	lines := s.lb.Feed(full)
-	lines = append(lines, s.lb.Flush()...)
-	tail := mapJSONLines(lines, s.mapCodexEvent)
+func (s *codexSession) Finalize(_ context.Context, _ []byte, exitCode int) (Result, []Event, error) {
+	tail := mapJSONLines(s.lb.Flush(), s.mapCodexEvent)
 	return Result{ExitCode: exitCode, Summary: s.summary, Usage: s.usage}, tail, nil
 }
 
