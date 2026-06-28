@@ -1,25 +1,29 @@
 // Package pty runs a command under a pseudo-terminal, streaming its combined
-// output to a callback and capturing it for the caller. It is the transport
-// layer beneath cliagent: it knows nothing about providers, events, or usage.
+// output to a callback and capturing it. It knows nothing about providers.
 package pty
 
 import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
+	"sync"
+	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 )
 
-// Command describes a process to run under a PTY. It maps directly from a
-// cliagent.CommandSpec.
+// Command describes a process to run under a PTY. It maps from cliagent.CommandSpec.
 type Command struct {
 	Argv    []string
-	Env     []string // "KEY=VALUE" overrides, applied on top of os.Environ()
+	Env     []string // "KEY=VALUE" overrides applied on top of os.Environ()
 	WorkDir string
-	Stdin   []byte // written to the PTY once started; the program must self-terminate
+	Stdin   []byte // written to the PTY once started (optional)
+	Rows    uint16 // defaults to 40
+	Cols    uint16 // defaults to 120
 }
 
 // Result is the outcome of a PTY run.
@@ -28,63 +32,94 @@ type Result struct {
 	Output   []byte
 }
 
-// Run starts cmd under a PTY, forwarding every output chunk to onChunk (if
-// non-nil) and accumulating the full output into Result.Output. It returns when
-// the process exits, the PTY closes, or ctx is cancelled. On cancellation the
-// process is killed and ctx.Err() is returned.
+// Run starts cmd under a PTY in its own process group, forwarding output chunks
+// to onChunk and accumulating Result.Output. On ctx cancellation the child gets
+// SIGINT, then SIGKILL after 2s, and ctx.Err() is returned.
 func Run(ctx context.Context, cmd Command, onChunk func([]byte)) (Result, error) {
 	if len(cmd.Argv) == 0 {
 		return Result{}, errors.New("pty: empty argv")
 	}
-
 	c := exec.CommandContext(ctx, cmd.Argv[0], cmd.Argv[1:]...)
+	c.Env = append(os.Environ(), cmd.Env...)
 	c.Dir = cmd.WorkDir
-	if len(cmd.Env) > 0 {
-		c.Env = append(os.Environ(), cmd.Env...)
-	}
+	c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
-	f, err := pty.Start(c)
+	ptmx, err := pty.Start(c)
 	if err != nil {
 		return Result{}, err
 	}
-	defer f.Close()
+	defer func() { _ = ptmx.Close() }()
+
+	rows, cols := cmd.Rows, cmd.Cols
+	if rows == 0 {
+		rows = 40
+	}
+	if cols == 0 {
+		cols = 120
+	}
+	_ = pty.Setsize(ptmx, &pty.Winsize{Rows: rows, Cols: cols})
 
 	if len(cmd.Stdin) > 0 {
-		go func() { _, _ = f.Write(cmd.Stdin) }()
+		go func() { _, _ = ptmx.Write(cmd.Stdin) }()
 	}
 
-	var buf bytes.Buffer
-	readBuf := make([]byte, 4096)
-	for {
-		n, readErr := f.Read(readBuf)
-		if n > 0 {
-			chunk := make([]byte, n)
-			copy(chunk, readBuf[:n])
-			buf.Write(chunk)
-			if onChunk != nil {
-				onChunk(chunk)
+	var (
+		fullBuf bytes.Buffer
+		bufMu   sync.Mutex
+		wg      sync.WaitGroup
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		buf := make([]byte, 4096)
+		for {
+			n, rerr := ptmx.Read(buf)
+			if n > 0 {
+				chunk := buf[:n]
+				bufMu.Lock()
+				fullBuf.Write(chunk)
+				bufMu.Unlock()
+				if onChunk != nil {
+					onChunk(chunk)
+				}
+			}
+			if rerr != nil {
+				return
 			}
 		}
-		if readErr != nil {
-			// EOF on clean exit; EIO when the child closes the PTY.
-			break
+	}()
+
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			if c.Process != nil {
+				_ = syscall.Kill(-c.Process.Pid, syscall.SIGINT)
+				select {
+				case <-time.After(2 * time.Second):
+					_ = syscall.Kill(-c.Process.Pid, syscall.SIGKILL)
+				case <-done:
+				}
+			}
+		case <-done:
 		}
-	}
+	}()
 
 	waitErr := c.Wait()
-	res := Result{Output: buf.Bytes()}
+	close(done)
+	wg.Wait()
 
+	res := Result{Output: fullBuf.Bytes()}
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		res.ExitCode = -1
 		return res, ctxErr
 	}
-
 	var exitErr *exec.ExitError
 	if errors.As(waitErr, &exitErr) {
 		res.ExitCode = exitErr.ExitCode()
 		return res, nil
 	}
-	if waitErr != nil {
+	if waitErr != nil && !errors.Is(waitErr, io.EOF) {
 		res.ExitCode = -1
 		return res, waitErr
 	}

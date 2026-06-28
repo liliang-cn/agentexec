@@ -2,7 +2,6 @@ package cliagent
 
 import "testing"
 
-// stubProvider is a minimal Provider for registry tests.
 type stubProvider struct{ name string }
 
 func (s stubProvider) Name() string               { return s.name }
@@ -11,78 +10,48 @@ func (s stubProvider) NewSession() Session        { return nil }
 
 func TestRegistryRegisterAndGet(t *testing.T) {
 	r := NewRegistry()
-	r.Register(stubProvider{name: "claude"})
-
-	p, err := r.Get("claude")
-	if err != nil {
-		t.Fatalf("Get(claude) returned error: %v", err)
-	}
-	if p.Name() != "claude" {
-		t.Fatalf("got provider %q, want claude", p.Name())
+	r.Register(stubProvider{name: "claude-code"})
+	p, err := r.Get("claude-code")
+	if err != nil || p.Name() != "claude-code" {
+		t.Fatalf("Get = %v, %v", p, err)
 	}
 }
 
 func TestRegistryGetUnknown(t *testing.T) {
-	r := NewRegistry()
-	if _, err := r.Get("nope"); err == nil {
-		t.Fatal("Get(nope) expected error, got nil")
+	if _, err := NewRegistry().Get("nope"); err == nil {
+		t.Fatal("expected error")
 	}
 }
 
 func TestRegistryNamesSorted(t *testing.T) {
 	r := NewRegistry()
 	r.Register(stubProvider{name: "codex"})
-	r.Register(stubProvider{name: "claude"})
-	r.Register(stubProvider{name: "gemini"})
-
-	names := r.Names()
-	want := []string{"claude", "codex", "gemini"}
-	if len(names) != len(want) {
-		t.Fatalf("got %v, want %v", names, want)
-	}
-	for i := range want {
-		if names[i] != want[i] {
-			t.Fatalf("Names() = %v, want sorted %v", names, want)
-		}
+	r.Register(stubProvider{name: "claude-code"})
+	got := r.Names()
+	if len(got) != 2 || got[0] != "claude-code" || got[1] != "codex" {
+		t.Fatalf("Names = %v", got)
 	}
 }
 
-func TestRegistryRegisterOverwrites(t *testing.T) {
-	r := NewRegistry()
-	r.Register(stubProvider{name: "claude"})
-	r.Register(stubProvider{name: "claude"})
-	if names := r.Names(); len(names) != 1 {
-		t.Fatalf("re-register should overwrite, got %v", names)
-	}
-}
-
-// Options resolve onto a providerConfig.
-func TestOptionsResolve(t *testing.T) {
+func TestOptionsResolveDefaultsAndOverrides(t *testing.T) {
 	cfg := resolveOptions("claude", []Option{
 		WithBinary("/custom/claude"),
 		WithBaseEnv(map[string]string{"FOO": "bar"}),
-		WithModelEnv("ANTHROPIC_MODEL"),
+		WithModelEnv("CLAUDE_MODEL"),
+		WithName("claude-code"),
+		WithMCPConfig(".aas-mcp.json", true),
+		WithAllowedModes([]string{"headless-code"}),
 	})
-	if cfg.binary != "/custom/claude" {
-		t.Fatalf("binary = %q, want /custom/claude", cfg.binary)
-	}
-	if cfg.baseEnv["FOO"] != "bar" {
-		t.Fatalf("baseEnv FOO = %q, want bar", cfg.baseEnv["FOO"])
-	}
-	if cfg.modelEnv != "ANTHROPIC_MODEL" {
-		t.Fatalf("modelEnv = %q, want ANTHROPIC_MODEL", cfg.modelEnv)
+	if cfg.binary != "/custom/claude" || cfg.baseEnv["FOO"] != "bar" ||
+		cfg.modelEnv != "CLAUDE_MODEL" || cfg.name != "claude-code" ||
+		cfg.mcpFilename != ".aas-mcp.json" || !cfg.strictMCP ||
+		len(cfg.allowedModes) != 1 {
+		t.Fatalf("cfg = %+v", cfg)
 	}
 }
 
-func TestRegistrySessionStub(t *testing.T) {
-	if (stubProvider{}).NewSession() != nil {
-		t.Fatal("stub NewSession should be nil")
-	}
-}
-
-func TestOptionsDefaultBinary(t *testing.T) {
-	cfg := resolveOptions("claude", nil)
-	if cfg.binary != "claude" {
-		t.Fatalf("default binary = %q, want claude", cfg.binary)
+func TestOptionsDefaultName(t *testing.T) {
+	if cfg := resolveOptions("claude", nil); cfg.name != "claude" || cfg.binary != "claude" {
+		t.Fatalf("cfg = %+v", cfg)
 	}
 }

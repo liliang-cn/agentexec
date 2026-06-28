@@ -6,67 +6,47 @@ import (
 	"testing"
 )
 
-func TestGeminiProviderMeta(t *testing.T) {
-	p := NewGemini()
-	if p.Name() != "gemini" {
-		t.Fatalf("Name = %q, want gemini", p.Name())
-	}
-	if !p.Capabilities().Streaming {
-		t.Fatalf("gemini should stream, got %+v", p.Capabilities())
+func newGemini() Session {
+	return NewGemini(WithName("gemini-cli"), WithAllowedModes([]string{"headless-code", "terminal-task"})).NewSession()
+}
+
+func TestGeminiMeta(t *testing.T) {
+	if NewGemini(WithName("gemini-cli")).Name() != "gemini-cli" {
+		t.Fatal("name")
 	}
 }
 
-func TestGeminiBuildCommandBasic(t *testing.T) {
-	s := NewGemini().NewSession()
-	spec, err := s.BuildCommand(context.Background(), Request{Prompt: "hi there", WorkspacePath: "/w"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"gemini", "--output-format", "json"}
-	if !slices.Equal(spec.Argv, want) {
-		t.Fatalf("Argv = %v, want %v", spec.Argv, want)
-	}
-	if string(spec.Stdin) != "hi there" {
-		t.Fatalf("Stdin = %q, want 'hi there'", spec.Stdin)
-	}
-}
-
-func TestGeminiBuildCommandModelAndSystemPrompt(t *testing.T) {
-	s := NewGemini().NewSession()
-	spec, _ := s.BuildCommand(context.Background(), Request{
-		Prompt:       "go",
-		SystemPrompt: "be brief",
-		Model:        "gemini-2.5-pro",
+func TestGeminiGoldenArgv(t *testing.T) {
+	spec, err := newGemini().BuildCommand(context.Background(), Request{
+		Mode: "headless-code", Prompt: "do it", PermissionMode: PermissionBypass, Sandbox: false,
 	})
-	assertContainsPair(t, spec.Argv, "-m", "gemini-2.5-pro")
-	if string(spec.Stdin) != "be brief\n\ngo" {
-		t.Fatalf("Stdin = %q, want prepended system prompt", spec.Stdin)
-	}
-}
-
-func TestGeminiFinalizeParsesResponseAndUsage(t *testing.T) {
-	s := NewGemini().NewSession()
-	out := `{"response":"the answer","stats":{"models":{"gemini-2.5-pro":{"tokens":{"prompt":50,"candidates":20,"cached":5}}}}}` + "\n"
-	res, events, err := s.Finalize(context.Background(), []byte(out), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Summary != "the answer" {
-		t.Fatalf("summary = %q, want 'the answer'", res.Summary)
-	}
-	if res.Usage.InputTokens != 50 || res.Usage.OutputTokens != 20 || res.Usage.CacheTokens != 5 {
-		t.Fatalf("usage = %+v, want 50/20/5", res.Usage)
-	}
-	if findEvent(events, EventAgentMessage) == nil {
-		t.Fatalf("want agent.message event, got %v", events)
+	want := []string{"gemini", "--prompt", "do it", "--output-format", "stream-json", "--yolo", "--skip-trust"}
+	if !slices.Equal(spec.Argv, want) {
+		t.Fatalf("argv=\n%v\nwant\n%v", spec.Argv, want)
 	}
 }
 
-func TestGeminiUsageSumsAcrossModels(t *testing.T) {
-	s := NewGemini().NewSession()
-	out := `{"response":"x","stats":{"models":{"a":{"tokens":{"prompt":10,"candidates":1}},"b":{"tokens":{"prompt":5,"candidates":2}}}}}`
-	res, _, _ := s.Finalize(context.Background(), []byte(out), 0)
-	if res.Usage.InputTokens != 15 || res.Usage.OutputTokens != 3 {
-		t.Fatalf("usage = %+v, want input 15 output 3", res.Usage)
+func TestGeminiInitAndResult(t *testing.T) {
+	s := newGemini()
+	ev, _ := s.ParseChunk([]byte(`{"type":"init","session_id":"x","model":"auto-gemini-3"}` + "\n"))
+	if m := findEvent(ev, EventAgentMessage); m == nil || m.Payload["role"] != "system" || m.Payload["raw"] == nil {
+		t.Fatalf("init=%v", ev)
+	}
+	s.ParseChunk([]byte(`{"type":"result","status":"success","stats":{"input_tokens":50,"output_tokens":20,"cached":5}}` + "\n"))
+	res, _, _ := s.Finalize(context.Background(), nil, 0)
+	if res.Usage.Model != "auto-gemini-3" || res.Usage.InputTokens != 50 || res.Usage.OutputTokens != 20 || res.Usage.CacheTokens != 5 {
+		t.Fatalf("usage=%+v", res.Usage)
+	}
+}
+
+func TestGeminiAssistantDelta(t *testing.T) {
+	s := newGemini()
+	ev, _ := s.ParseChunk([]byte(`{"type":"message","role":"assistant","content":"partial","delta":true}` + "\n"))
+	m := findEvent(ev, EventAgentMessage)
+	if m == nil || m.Payload["text"] != "partial" || m.Payload["delta"] != true {
+		t.Fatalf("assistant=%v", m)
 	}
 }

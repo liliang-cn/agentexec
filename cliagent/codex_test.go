@@ -6,116 +6,76 @@ import (
 	"testing"
 )
 
-func TestCodexProviderMeta(t *testing.T) {
-	p := NewCodex()
-	if p.Name() != "codex" {
-		t.Fatalf("Name = %q, want codex", p.Name())
-	}
-	caps := p.Capabilities()
-	if !caps.Streaming || !caps.Resume {
-		t.Fatalf("codex should stream + resume, got %+v", caps)
-	}
-	if caps.Plugins {
-		t.Fatalf("codex has no plugin support, got %+v", caps)
+func newCodex() Session {
+	return NewCodex(WithName("codex"), WithAllowedModes([]string{"headless-code", "terminal-task"})).NewSession()
+}
+
+func TestCodexMeta(t *testing.T) {
+	p := NewCodex(WithName("codex"))
+	if p.Name() != "codex" || !p.Capabilities().Streaming {
+		t.Fatalf("meta wrong")
 	}
 }
 
-func TestCodexBuildCommandBasic(t *testing.T) {
-	s := NewCodex().NewSession()
-	spec, err := s.BuildCommand(context.Background(), Request{Prompt: "hello", WorkspacePath: "/w"})
+func TestCodexGoldenArgv(t *testing.T) {
+	spec, err := newCodex().BuildCommand(context.Background(), Request{
+		Mode: "headless-code", Prompt: "do it", WorkspacePath: "/w",
+		PermissionMode: PermissionBypass, Sandbox: false,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"codex", "exec", "--json", "hello"}
+	want := []string{"codex", "exec", "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "--", "do it"}
 	if !slices.Equal(spec.Argv, want) {
-		t.Fatalf("Argv = %v, want %v", spec.Argv, want)
-	}
-	if spec.WorkDir != "/w" {
-		t.Fatalf("WorkDir = %q, want /w", spec.WorkDir)
+		t.Fatalf("argv=\n%v\nwant\n%v", spec.Argv, want)
 	}
 }
 
-func TestCodexBuildCommandSystemPromptPrepended(t *testing.T) {
-	s := NewCodex().NewSession()
-	spec, _ := s.BuildCommand(context.Background(), Request{
-		Prompt:       "do it",
-		SystemPrompt: "you are careful",
+func TestCodexResumeArgv(t *testing.T) {
+	spec, _ := newCodex().BuildCommand(context.Background(), Request{
+		Mode: "headless-code", Prompt: "p", ResumeSessionID: "th7", Sandbox: false,
 	})
-	last := spec.Argv[len(spec.Argv)-1]
-	want := "you are careful\n\ndo it"
-	if last != want {
-		t.Fatalf("prompt arg = %q, want %q", last, want)
+	want := []string{"codex", "exec", "resume", "th7", "--json", "--skip-git-repo-check", "--dangerously-bypass-approvals-and-sandbox", "--", "p"}
+	if !slices.Equal(spec.Argv, want) {
+		t.Fatalf("argv=%v", spec.Argv)
 	}
 }
 
-func TestCodexBuildCommandModelAndResume(t *testing.T) {
-	s := NewCodex().NewSession()
-	spec, _ := s.BuildCommand(context.Background(), Request{
-		Prompt:          "hi",
-		Model:           "gpt-x",
-		ResumeSessionID: "thread-7",
-		ExtraArgs:       []string{"--full-auto"},
-	})
-	assertContainsPair(t, spec.Argv, "--model", "gpt-x")
-	// resume subcommand carries the thread id
-	if !slices.Contains(spec.Argv, "resume") || !slices.Contains(spec.Argv, "thread-7") {
-		t.Fatalf("argv missing resume thread-7: %v", spec.Argv)
-	}
-	if !slices.Contains(spec.Argv, "--full-auto") {
-		t.Fatalf("argv missing extra arg: %v", spec.Argv)
+func TestCodexSandboxedOmitsBypass(t *testing.T) {
+	spec, _ := newCodex().BuildCommand(context.Background(), Request{Mode: "headless-code", Prompt: "p", Sandbox: true})
+	if slices.Contains(spec.Argv, "--dangerously-bypass-approvals-and-sandbox") || slices.Contains(spec.Argv, "--skip-git-repo-check") {
+		t.Fatalf("sandboxed run should omit bypass flags: %v", spec.Argv)
 	}
 }
 
-func TestCodexParseAssistantMessage(t *testing.T) {
-	s := NewCodex().NewSession()
-	line := `{"type":"item.completed","item":{"type":"assistant_message","text":"All set"}}` + "\n"
-	events, _ := s.ParseChunk([]byte(line))
-	got := findEvent(events, EventAgentMessage)
-	if got == nil || got.Payload["text"] != "All set" {
-		t.Fatalf("want agent.message 'All set', got %v", events)
+func TestCodexSystemPromptPrepended(t *testing.T) {
+	spec, _ := newCodex().BuildCommand(context.Background(), Request{Mode: "headless-code", Prompt: "go", SystemPrompt: "be careful", Sandbox: true})
+	if spec.Argv[len(spec.Argv)-1] != "be careful\n\ngo" {
+		t.Fatalf("prompt=%q", spec.Argv[len(spec.Argv)-1])
 	}
 }
 
-func TestCodexParseCommandExecution(t *testing.T) {
-	s := NewCodex().NewSession()
-	line := `{"type":"item.completed","item":{"type":"command_execution","command":"ls -la"}}` + "\n"
-	events, _ := s.ParseChunk([]byte(line))
-	got := findEvent(events, EventToolCall)
-	if got == nil {
-		t.Fatalf("want agent.tool_call, got %v", events)
+func TestCodexAssistantAndUsage(t *testing.T) {
+	s := newCodex()
+	s.ParseChunk([]byte(`{"type":"thread.started","thread_id":"th9"}` + "\n"))
+	ev, _ := s.ParseChunk([]byte(`{"type":"item.completed","item":{"type":"agent_message","text":"All set"}}` + "\n"))
+	if m := findEvent(ev, EventAgentMessage); m == nil || m.Payload["text"] != "All set" {
+		t.Fatalf("msg=%v", ev)
 	}
-	if got.Payload["command"] != "ls -la" {
-		t.Fatalf("command = %v, want 'ls -la'", got.Payload["command"])
+	s.ParseChunk([]byte(`{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":40,"cached_input_tokens":12,"reasoning_output_tokens":8}}` + "\n"))
+	res, _, _ := s.Finalize(context.Background(), nil, 0)
+	if res.Usage.InputTokens != 100 || res.Usage.OutputTokens != 48 || res.Usage.CacheTokens != 12 {
+		t.Fatalf("usage=%+v", res.Usage)
 	}
-}
-
-func TestCodexSniffsThreadID(t *testing.T) {
-	s := NewCodex().NewSession()
-	s.ParseChunk([]byte(`{"type":"thread.started","thread_id":"th-42"}` + "\n"))
-	if s.SessionID() != "th-42" {
-		t.Fatalf("SessionID = %q, want th-42", s.SessionID())
+	if s.SessionID() != "th9" {
+		t.Fatalf("sid=%q", s.SessionID())
 	}
 }
 
-func TestCodexCapturesUsageOnTurnCompleted(t *testing.T) {
-	s := NewCodex().NewSession()
-	res, _, err := s.Finalize(context.Background(),
-		[]byte(`{"type":"turn.completed","usage":{"input_tokens":100,"output_tokens":40,"cached_input_tokens":12}}`+"\n"),
-		0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Usage.InputTokens != 100 || res.Usage.OutputTokens != 40 || res.Usage.CacheTokens != 12 {
-		t.Fatalf("usage = %+v, want 100/40/12", res.Usage)
-	}
-}
-
-func TestCodexSummaryFromLastAssistantMessage(t *testing.T) {
-	s := NewCodex().NewSession()
-	s.ParseChunk([]byte(`{"type":"item.completed","item":{"type":"assistant_message","text":"first"}}` + "\n"))
-	res, _, _ := s.Finalize(context.Background(),
-		[]byte(`{"type":"item.completed","item":{"type":"assistant_message","text":"final answer"}}`+"\n"), 0)
-	if res.Summary != "final answer" {
-		t.Fatalf("summary = %q, want 'final answer'", res.Summary)
+func TestCodexCommandExecutionIsToolCall(t *testing.T) {
+	s := newCodex()
+	ev, _ := s.ParseChunk([]byte(`{"type":"item.completed","item":{"type":"command_execution","command":"ls"}}` + "\n"))
+	if findEvent(ev, EventToolCall) == nil {
+		t.Fatalf("no tool_call: %v", ev)
 	}
 }

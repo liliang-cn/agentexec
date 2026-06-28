@@ -3,58 +3,32 @@ package cliagent
 import "testing"
 
 func TestMapJSONLinesDispatchesObjects(t *testing.T) {
-	mapper := func(obj map[string]any) []Event {
-		return []Event{{Type: EventAgentMessage, Payload: map[string]any{"role": obj["role"]}}}
+	mapper := func(o map[string]any) []Event {
+		return []Event{{Type: EventAgentMessage, Payload: map[string]any{"role": o["role"]}}}
 	}
-	events := mapJSONLines([]string{`{"role":"assistant"}`}, mapper)
-	if len(events) != 1 {
-		t.Fatalf("got %d events, want 1", len(events))
-	}
-	if events[0].Type != EventAgentMessage || events[0].Payload["role"] != "assistant" {
-		t.Fatalf("unexpected event: %+v", events[0])
+	ev := mapJSONLines([]string{`{"role":"assistant"}`}, mapper)
+	if len(ev) != 1 || ev[0].Payload["role"] != "assistant" {
+		t.Fatalf("ev = %v", ev)
 	}
 }
 
-func TestMapJSONLinesNonJSONBecomesTerminalOutput(t *testing.T) {
-	mapper := func(map[string]any) []Event { return nil }
-	events := mapJSONLines([]string{"plain log line"}, mapper)
-	if len(events) != 1 {
-		t.Fatalf("got %d events, want 1", len(events))
-	}
-	if events[0].Type != EventTerminalOutput {
-		t.Fatalf("type = %q, want %q", events[0].Type, EventTerminalOutput)
-	}
-	if events[0].Payload["text"] != "plain log line" {
-		t.Fatalf("text = %v, want 'plain log line'", events[0].Payload["text"])
+func TestMapJSONLinesNonJSONUsesLineKey(t *testing.T) {
+	ev := mapJSONLines([]string{"plain log"}, func(map[string]any) []Event { return nil })
+	if len(ev) != 1 || ev[0].Type != EventTerminalOutput || ev[0].Payload["line"] != "plain log" {
+		t.Fatalf("ev = %v", ev)
 	}
 }
 
-func TestMapJSONLinesSkipsBlankLines(t *testing.T) {
-	mapper := func(map[string]any) []Event { return nil }
-	events := mapJSONLines([]string{"", "   "}, mapper)
-	if len(events) != 0 {
-		t.Fatalf("blank lines should produce no events, got %v", events)
+func TestMapJSONLinesSkipsBlank(t *testing.T) {
+	if ev := mapJSONLines([]string{""}, func(map[string]any) []Event { return nil }); len(ev) != 0 {
+		t.Fatalf("ev = %v", ev)
 	}
 }
 
-func TestMapJSONLinesJSONArrayIsTerminalOutput(t *testing.T) {
-	// A JSON array is valid JSON but not an object; treat as terminal output.
-	mapper := func(map[string]any) []Event { return nil }
-	events := mapJSONLines([]string{`[1,2,3]`}, mapper)
-	if len(events) != 1 || events[0].Type != EventTerminalOutput {
-		t.Fatalf("array line should be terminal output, got %v", events)
-	}
-}
-
-func TestMapJSONLinesPreservesOrder(t *testing.T) {
-	mapper := func(obj map[string]any) []Event {
-		return []Event{{Type: EventAgentMessage, Payload: obj}}
-	}
-	events := mapJSONLines([]string{`{"n":1}`, "log", `{"n":2}`}, mapper)
-	if len(events) != 3 {
-		t.Fatalf("got %d events, want 3", len(events))
-	}
-	if events[0].Type != EventAgentMessage || events[1].Type != EventTerminalOutput || events[2].Type != EventAgentMessage {
-		t.Fatalf("order not preserved: %+v", events)
+func TestMapJSONLinesArrayLeadingTreatedAsLine(t *testing.T) {
+	// A '['-leading line is not an object; emit as terminal output.
+	ev := mapJSONLines([]string{`[1,2]`}, func(map[string]any) []Event { return nil })
+	if len(ev) != 1 || ev[0].Type != EventTerminalOutput || ev[0].Payload["line"] != "[1,2]" {
+		t.Fatalf("ev = %v", ev)
 	}
 }

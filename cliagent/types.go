@@ -7,6 +7,14 @@ package cliagent
 
 import "context"
 
+// PermissionMode selects whether a provider bypasses its approval prompts.
+type PermissionMode string
+
+const (
+	PermissionDefault PermissionMode = ""
+	PermissionBypass  PermissionMode = "bypass"
+)
+
 // Request is the app-agnostic input to BuildCommand. App-specific policy text is
 // passed via SystemPrompt; anything else via ExtraArgs/Env. No PolicyJSON/UserID/
 // ProjectID/SaaS fields are baked in — those stay in the calling application.
@@ -18,11 +26,13 @@ type Request struct {
 	WorkspacePath   string
 	Model           string // optional; provider maps to its model flag
 	Env             map[string]string
-	Plugins         []PluginRef // claude --plugin-dir + .mcp.json merge
-	MCPConfigPath   string      // optional precomputed --mcp-config path
-	ResumeSessionID string      // claude --resume / codex resume <id>
-	Continue        bool        // claude --continue
-	ExtraArgs       []string    // escape hatch appended before the prompt
+	Plugins         []PluginRef    // claude --plugin-dir + .mcp.json merge
+	ExtraMCPServers map[string]any // caller-injected MCP servers, merged before plugin servers
+	PermissionMode  PermissionMode // PermissionDefault | PermissionBypass
+	Sandbox         bool           // false (zero value) = headless: emit skip-sandbox/trust/git-check flags. true = run inside the CLI's own sandbox/approval flow.
+	ResumeSessionID string         // claude --resume / codex resume <id>
+	Continue        bool           // claude --continue
+	ExtraArgs       []string       // escape hatch appended before the prompt
 }
 
 // CommandSpec is the fully resolved command to execute, produced by BuildCommand.
@@ -64,12 +74,14 @@ type Result struct {
 	Usage    Usage
 }
 
-// Capabilities describes which features a provider supports.
+// Capabilities describes which app-agnostic features a provider supports.
 type Capabilities struct {
-	Streaming bool
-	Resume    bool
-	Plugins   bool
-	MCP       bool
+	Streaming         bool
+	Resume            bool
+	Plugins           bool
+	MCP               bool
+	SupportsPTY       bool
+	RequiresWorkspace bool
 }
 
 // PluginRef references a Claude Code plugin directory by name and path.
