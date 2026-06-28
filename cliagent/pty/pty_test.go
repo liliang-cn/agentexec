@@ -102,6 +102,17 @@ func TestRunContextCancellation(t *testing.T) {
 	}
 }
 
+func TestRunReportsSizeViaStty(t *testing.T) {
+	// The PTY is sized 40x120; `stty size` prints "rows cols".
+	res, err := Run(context.Background(), Command{Argv: []string{"sh", "-c", "stty size"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(res.Output), "40 120") {
+		t.Fatalf("stty size = %q, want '40 120'", res.Output)
+	}
+}
+
 func lastPathSegment(p string) string {
 	for i := len(p) - 1; i >= 0; i-- {
 		if p[i] == '/' {
