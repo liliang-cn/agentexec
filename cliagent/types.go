@@ -29,11 +29,11 @@ type Request struct {
 	Plugins         []PluginRef    // claude --plugin-dir + .mcp.json merge
 	ExtraMCPServers map[string]any // caller-injected MCP servers, merged before plugin servers
 	PermissionMode  PermissionMode // PermissionDefault | PermissionBypass
-	Sandbox         bool           // true = sandboxed (default); false = emit skip-sandbox/trust/git-check flags
+	Sandbox         bool           // false (zero value) = headless: emit skip-sandbox/trust/git-check flags. true = run inside the CLI's own sandbox/approval flow.
 	MCPConfigPath   string         // optional precomputed --mcp-config path
-	ResumeSessionID string      // claude --resume / codex resume <id>
-	Continue        bool        // claude --continue
-	ExtraArgs       []string    // escape hatch appended before the prompt
+	ResumeSessionID string         // claude --resume / codex resume <id>
+	Continue        bool           // claude --continue
+	ExtraArgs       []string       // escape hatch appended before the prompt
 }
 
 // CommandSpec is the fully resolved command to execute, produced by BuildCommand.
