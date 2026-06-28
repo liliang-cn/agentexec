@@ -47,7 +47,7 @@ func (s *codexSession) BuildCommand(_ context.Context, req Request) (CommandSpec
 
 	return CommandSpec{
 		Argv:    argv,
-		Env:     mergeEnv(s.cfg.baseEnv, req.Env, s.cfg.modelEnv, req.Model),
+		Env:     mergeEnv(s.cfg.baseEnv, req.Env),
 		WorkDir: req.WorkspacePath,
 	}, nil
 }

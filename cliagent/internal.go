@@ -5,15 +5,16 @@ import (
 	"sort"
 )
 
-// mergeEnv combines the provider base env, the request env, and an optional
-// model env var into a sorted "KEY=VALUE" slice. Request env overrides base env.
-func mergeEnv(base, reqEnv map[string]string, modelEnvKey, model string) []string {
-	merged := make(map[string]string, len(base)+len(reqEnv)+1)
-	maps.Copy(merged, base)
-	maps.Copy(merged, reqEnv)
-	if modelEnvKey != "" && model != "" {
-		merged[modelEnvKey] = model
+// mergeEnv combines the provider base env and the request env into a sorted
+// "KEY=VALUE" slice. Empty base values are dropped; Request.Env overrides base.
+func mergeEnv(base, reqEnv map[string]string) []string {
+	merged := make(map[string]string, len(base)+len(reqEnv))
+	for k, v := range base {
+		if v != "" {
+			merged[k] = v
+		}
 	}
+	maps.Copy(merged, reqEnv)
 	out := make([]string, 0, len(merged))
 	for k, v := range merged {
 		out = append(out, k+"="+v)

@@ -43,7 +43,7 @@ func (s *geminiSession) BuildCommand(_ context.Context, req Request) (CommandSpe
 
 	return CommandSpec{
 		Argv:    argv,
-		Env:     mergeEnv(s.cfg.baseEnv, req.Env, s.cfg.modelEnv, req.Model),
+		Env:     mergeEnv(s.cfg.baseEnv, req.Env),
 		WorkDir: req.WorkspacePath,
 		Stdin:   []byte(prompt),
 	}, nil
