@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -87,8 +88,17 @@ func TestClaudeMCPMergeWritesConfigAndStrict(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !contains(string(data), `"aas"`) || !contains(string(data), `"p"`) {
+	if !strings.Contains(string(data), `"aas"`) || !strings.Contains(string(data), `"p"`) {
 		t.Fatalf("merged config = %s", data)
+	}
+}
+
+func TestClaudeParseUserToolResult(t *testing.T) {
+	s := newClaudeAAS()
+	ev, _ := s.ParseChunk([]byte(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}` + "\n"))
+	r := findEvent(ev, EventToolResult)
+	if r == nil {
+		t.Fatalf("no tool_result event: %v", ev)
 	}
 }
 

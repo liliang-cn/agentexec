@@ -39,13 +39,6 @@ func mapObject(m map[string]any, key string) map[string]any {
 	return nil
 }
 
-func mapArray(m map[string]any, key string) []any {
-	if v, ok := m[key].([]any); ok {
-		return v
-	}
-	return nil
-}
-
 // mapInt64 coerces a JSON number (float64) or integer to int64.
 func mapInt64(m map[string]any, key string) int64 {
 	switch v := m[key].(type) {
@@ -55,13 +48,6 @@ func mapInt64(m map[string]any, key string) int64 {
 		return v
 	case int:
 		return int64(v)
-	}
-	return 0
-}
-
-func mapFloat64(m map[string]any, key string) float64 {
-	if v, ok := m[key].(float64); ok {
-		return v
 	}
 	return 0
 }

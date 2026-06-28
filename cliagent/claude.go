@@ -1,6 +1,10 @@
 package cliagent
 
-import "context"
+import (
+	"context"
+	"maps"
+	"slices"
+)
 
 type claudeProvider struct{ cfg providerConfig }
 
@@ -28,7 +32,7 @@ type claudeSession struct {
 }
 
 func (s *claudeSession) BuildCommand(_ context.Context, req Request) (CommandSpec, error) {
-	if len(s.cfg.allowedModes) > 0 && !sliceContains(s.cfg.allowedModes, req.Mode) {
+	if len(s.cfg.allowedModes) > 0 && !slices.Contains(s.cfg.allowedModes, req.Mode) {
 		return CommandSpec{}, ErrUnsupportedMode
 	}
 	argv := []string{s.cfg.binary, "--print", "--output-format", "stream-json", "--verbose"}
@@ -41,23 +45,20 @@ func (s *claudeSession) BuildCommand(_ context.Context, req Request) (CommandSpe
 
 	// Merge MCP servers: ExtraMCPServers first, then plugin .mcp.json (last wins).
 	servers := map[string]any{}
-	for k, v := range req.ExtraMCPServers {
-		servers[k] = v
-	}
+	maps.Copy(servers, req.ExtraMCPServers)
 	if len(req.Plugins) > 0 {
 		pluginServers, err := loadPluginMCPServers(req.Plugins, req.Env)
 		if err != nil {
 			return CommandSpec{}, err
 		}
-		for k, v := range pluginServers {
-			servers[k] = v
-		}
+		maps.Copy(servers, pluginServers)
 	}
 	if len(servers) > 0 && req.WorkspacePath != "" {
 		filename := s.cfg.mcpFilename
 		if filename == "" {
 			filename = ".mcp-config.json"
 		}
+		// Best-effort: if the merged MCP config can't be written, run without it (matches the real CLI wrapper).
 		if mcpPath, err := writeMCPConfig(req.WorkspacePath, filename, servers); err == nil {
 			argv = append(argv, "--mcp-config", mcpPath)
 			if s.cfg.strictMCP {
@@ -255,14 +256,4 @@ func addUsageFromObject(obj map[string]any, into *Usage) {
 	if v, ok := usage["cache_read_input_tokens"].(float64); ok {
 		into.CacheTokens += int64(v)
 	}
-}
-
-// sliceContains reports whether s contains v.
-func sliceContains(s []string, v string) bool {
-	for _, x := range s {
-		if x == v {
-			return true
-		}
-	}
-	return false
 }

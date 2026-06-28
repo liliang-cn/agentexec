@@ -11,15 +11,6 @@ func findEvent(events []Event, typ string) *Event {
 	return nil
 }
 
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
-}
-
 func assertContainsPair(t *testing.T, argv []string, flag, val string) {
 	t.Helper()
 	for i := 0; i+1 < len(argv); i++ {
