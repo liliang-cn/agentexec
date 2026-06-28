@@ -2,105 +2,115 @@ package cliagent
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 )
 
-// mcpFileName is the per-plugin MCP server definition file.
-const mcpFileName = ".mcp.json"
+const pluginMCPFile = ".mcp.json"
 
-// mcpConfigFileName is the merged config written for the CLI's --mcp-config flag.
-const mcpConfigFileName = "mcp-config.json"
-
-var envRefPattern = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
-
-// loadPluginMCPServers reads each plugin's .mcp.json and merges its "mcpServers"
-// into a single map keyed by server name. Plugins without a .mcp.json are
-// skipped; later plugins override earlier ones on name conflicts.
-func loadPluginMCPServers(plugins []PluginRef) (map[string]any, error) {
+// loadPluginMCPServers reads each plugin's .mcp.json (if present), resolves
+// ${CLAUDE_PLUGIN_ROOT} and ${ENV_VAR} references against env, and returns a
+// merged mcpServers map. A missing plugin directory (or empty Path) is an error;
+// a plugin without .mcp.json contributes nothing. Last write wins.
+func loadPluginMCPServers(plugins []PluginRef, env map[string]string) (map[string]any, error) {
 	merged := map[string]any{}
-	for _, pl := range plugins {
-		path := filepath.Join(pl.Path, mcpFileName)
-		data, err := os.ReadFile(path)
-		if errors.Is(err, os.ErrNotExist) {
+	for _, p := range plugins {
+		if p.Path == "" {
+			return nil, fmt.Errorf("plugin %q has empty Path", p.Name)
+		}
+		info, err := os.Stat(p.Path)
+		if err != nil {
+			return nil, fmt.Errorf("plugin %q at %s: %w", p.Name, p.Path, err)
+		}
+		if !info.IsDir() {
+			return nil, fmt.Errorf("plugin %q at %s: not a directory", p.Name, p.Path)
+		}
+		raw, err := os.ReadFile(filepath.Join(p.Path, pluginMCPFile))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, fmt.Errorf("read %s/.mcp.json: %w", p.Path, err)
+		}
+		var parsed map[string]any
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return nil, fmt.Errorf("parse %s/.mcp.json: %w", p.Path, err)
+		}
+		servers, _ := parsed["mcpServers"].(map[string]any)
+		if servers == nil {
 			continue
 		}
-		if err != nil {
-			return nil, fmt.Errorf("cliagent: reading %s: %w", path, err)
+		vars := make(map[string]string, len(env)+1)
+		for k, v := range env {
+			vars[k] = v
 		}
-		var doc struct {
-			MCPServers map[string]any `json:"mcpServers"`
+		vars["CLAUDE_PLUGIN_ROOT"] = p.Path
+		resolved := resolveRefs(servers, vars).(map[string]any)
+		for name, server := range resolved {
+			merged[name] = server
 		}
-		if err := json.Unmarshal(data, &doc); err != nil {
-			return nil, fmt.Errorf("cliagent: parsing %s: %w", path, err)
-		}
-		maps.Copy(merged, doc.MCPServers)
 	}
 	return merged, nil
 }
 
-// resolveRefs recursively replaces ${VAR} references in string values using env.
-// Unknown variables are left as their literal ${VAR} form.
-func resolveRefs(servers map[string]any, env map[string]string) map[string]any {
-	out, _ := resolveValue(servers, env).(map[string]any)
-	return out
-}
+// refPattern matches ${VAR_NAME} (uppercase + underscore only).
+var refPattern = regexp.MustCompile(`\$\{([A-Z_][A-Z0-9_]*)\}`)
 
-func resolveValue(v any, env map[string]string) any {
-	switch t := v.(type) {
+// resolveRefs walks a parsed JSON value substituting ${VAR} references in
+// strings in place. Unknown variables stay literal.
+func resolveRefs(v any, vars map[string]string) any {
+	switch x := v.(type) {
 	case string:
-		return envRefPattern.ReplaceAllStringFunc(t, func(match string) string {
-			name := envRefPattern.FindStringSubmatch(match)[1]
-			if val, ok := env[name]; ok {
+		return refPattern.ReplaceAllStringFunc(x, func(m string) string {
+			key := m[2 : len(m)-1]
+			if val, ok := vars[key]; ok {
 				return val
 			}
-			return match
+			return m
 		})
 	case map[string]any:
-		out := make(map[string]any, len(t))
-		for k, val := range t {
-			out[k] = resolveValue(val, env)
+		for k, vv := range x {
+			x[k] = resolveRefs(vv, vars)
 		}
-		return out
+		return x
 	case []any:
-		out := make([]any, len(t))
-		for i, val := range t {
-			out[i] = resolveValue(val, env)
+		for i, vv := range x {
+			x[i] = resolveRefs(vv, vars)
 		}
-		return out
+		return x
 	default:
 		return v
 	}
 }
 
-// writeMCPConfig writes {"mcpServers": servers} into dir and returns its path.
-func writeMCPConfig(dir string, servers map[string]any) (string, error) {
-	doc := map[string]any{"mcpServers": servers}
-	data, err := json.MarshalIndent(doc, "", "  ")
+// writeMCPConfig writes {"mcpServers": servers} to dir/filename (0600) and
+// returns the absolute path.
+func writeMCPConfig(dir, filename string, servers map[string]any) (string, error) {
+	b, err := json.MarshalIndent(map[string]any{"mcpServers": servers}, "", "  ")
 	if err != nil {
 		return "", err
 	}
-	path := filepath.Join(dir, mcpConfigFileName)
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	p := filepath.Join(dir, filename)
+	if err := os.WriteFile(p, b, 0o600); err != nil {
 		return "", err
 	}
-	return path, nil
+	if abs, err := filepath.Abs(p); err == nil {
+		return abs, nil
+	}
+	return p, nil
 }
 
-// WritePluginMCPConfig loads the plugins' MCP servers, resolves ${VAR} refs
-// against env, writes a merged config into outDir, and returns its path. If
-// there are no servers to write, it returns an empty path and no error.
-func WritePluginMCPConfig(plugins []PluginRef, env map[string]string, outDir string) (string, error) {
-	servers, err := loadPluginMCPServers(plugins)
+// WritePluginMCPConfig loads + resolves plugin MCP servers and writes a merged
+// config into outDir/filename, returning its path (empty if nothing to write).
+func WritePluginMCPConfig(plugins []PluginRef, env map[string]string, outDir, filename string) (string, error) {
+	servers, err := loadPluginMCPServers(plugins, env)
 	if err != nil {
 		return "", err
 	}
 	if len(servers) == 0 {
 		return "", nil
 	}
-	return writeMCPConfig(outDir, resolveRefs(servers, env))
+	return writeMCPConfig(outDir, filename, servers)
 }
