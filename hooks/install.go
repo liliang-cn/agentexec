@@ -132,9 +132,14 @@ func InstallCodex(opts InstallOptions) error {
 		return err
 	}
 
+	// Codex 0.141 requires the same nested shape as Claude
+	// ({event: [{hooks: [{type, command}]}]}); a flat [{command}] entry is
+	// silently ignored and the hook never fires.
 	eventHooks := map[string]any{}
 	for _, ev := range opts.events() {
-		eventHooks[ev] = []any{map[string]any{"command": opts.Command}}
+		eventHooks[ev] = []any{map[string]any{
+			"hooks": []any{map[string]any{"type": "command", "command": opts.Command}},
+		}}
 	}
 	if err := writeJSON(filepath.Join(dir, "hooks.json"), map[string]any{"hooks": eventHooks}); err != nil {
 		return err

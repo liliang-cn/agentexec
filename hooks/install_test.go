@@ -85,6 +85,24 @@ func TestInstallCodexWritesHooksAndEnables(t *testing.T) {
 	if !strings.Contains(string(cfg), "hooks = true") {
 		t.Fatalf("config.toml did not enable hooks: %s", cfg)
 	}
+	// Codex 0.141 only fires hooks written in the nested Claude-style shape:
+	// {event: [{hooks: [{type, command}]}]}. A flat [{command}] is ignored.
+	raw, _ := os.ReadFile(filepath.Join(dir, "hooks.json"))
+	var parsed struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Type    string `json:"type"`
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("hooks.json invalid: %v", err)
+	}
+	g := parsed.Hooks["PreToolUse"]
+	if len(g) != 1 || len(g[0].Hooks) != 1 || g[0].Hooks[0].Type != "command" || g[0].Hooks[0].Command != "/bin/h" {
+		t.Fatalf("PreToolUse not in nested {hooks:[{type,command}]} shape: %s", raw)
+	}
 }
 
 func TestInstallCodexInsertsUnderExistingFeatures(t *testing.T) {
