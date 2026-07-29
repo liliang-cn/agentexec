@@ -3,6 +3,7 @@ package hooks
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -62,5 +63,36 @@ func TestLastAssistantTextIgnoresBlankLines(t *testing.T) {
 	got, _ := LastAssistantText(writeTranscript(t, jsonl))
 	if got != "hello" {
 		t.Fatalf("LastAssistantText = %q, want 'hello'", got)
+	}
+}
+
+func TestTurnTextJoinsTheWholeTurn(t *testing.T) {
+	// What a person who was not watching needs is the running commentary, not the
+	// closing sentence — and the previous turn must not bleed into it.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t.jsonl")
+	lines := []string{
+		`{"type":"user","message":{"role":"user","content":"first question"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"old answer"}]}}`,
+		`{"type":"user","message":{"role":"user","content":"do the thing"}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"looking"}]}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}`,
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := TurnText(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "looking\n\ndone" {
+		t.Fatalf("TurnText = %q, want %q", got, "looking\n\ndone")
+	}
+}
+
+func TestTurnTextEmptyPath(t *testing.T) {
+	if got, err := TurnText(""); got != "" || err != nil {
+		t.Fatalf("TurnText(\"\") = (%q, %v), want (\"\", nil)", got, err)
 	}
 }
