@@ -31,3 +31,18 @@ func mapString(m map[string]any, key string) string {
 	}
 	return ""
 }
+
+// finishOutput turns whatever is left into events.
+//
+// A caller that streamed through ParseChunk gets only the buffered tail. A
+// caller that collected the output and handed it to Finalize gets it parsed
+// here — because the parameter is called fullOutput, and a parameter that is
+// accepted and discarded invites exactly one mistake: pass everything, get an
+// empty Result and no error, which is the least debuggable outcome available.
+func finishOutput(lb *LineBuffer, fullOutput []byte, mapper func(map[string]any) []Event) []Event {
+	if !lb.Fed() && len(fullOutput) > 0 {
+		events := mapJSONLines(lb.Feed(fullOutput), mapper)
+		return append(events, mapJSONLines(lb.Flush(), mapper)...)
+	}
+	return mapJSONLines(lb.Flush(), mapper)
+}

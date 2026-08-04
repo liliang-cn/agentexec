@@ -163,3 +163,93 @@ func TestClaudeUsageFallbackWithoutResult(t *testing.T) {
 		t.Fatalf("fallback usage=%+v", res.Usage)
 	}
 }
+
+// An empty ExtraMCPServers map cannot say "no MCP servers": no servers means no
+// --mcp-config flag, which means the CLI loads every server the developer has
+// configured. NoMCP is the way to say it.
+func TestClaudeNoMCPWritesAnEmptyConfigAndGoesStrict(t *testing.T) {
+	ws := t.TempDir()
+	spec, err := NewClaude().NewSession().BuildCommand(context.Background(), Request{
+		Prompt: "p", WorkspacePath: ws, NoMCP: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.Index(spec.Argv, "--mcp-config")
+	if i < 0 {
+		t.Fatalf("no --mcp-config: %v", spec.Argv)
+	}
+	if !slices.Contains(spec.Argv, "--strict-mcp-config") {
+		t.Fatalf("NoMCP without the strict flag still merges the user's servers: %v", spec.Argv)
+	}
+	// --mcp-config is variadic: a value in the last position before the prompt
+	// swallows the prompt as a second config path.
+	if spec.Argv[i+1] == spec.Argv[len(spec.Argv)-1] {
+		t.Errorf("the config path is immediately before the prompt: %v", spec.Argv)
+	}
+	body, err := os.ReadFile(filepath.Join(ws, ".mcp-config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"mcpServers"`) || strings.Contains(string(body), "command") {
+		t.Errorf("config = %s, want an empty server set", body)
+	}
+}
+
+// Explicit servers win: asking for both none and some is a caller bug, and the
+// named servers are the clearer intent.
+func TestClaudeNoMCPYieldsToExplicitServers(t *testing.T) {
+	ws := t.TempDir()
+	spec, _ := NewClaude().NewSession().BuildCommand(context.Background(), Request{
+		Prompt: "p", WorkspacePath: ws, NoMCP: true,
+		ExtraMCPServers: map[string]any{"x": map[string]any{"command": "exe"}},
+	})
+	body, err := os.ReadFile(filepath.Join(ws, ".mcp-config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"x"`) {
+		t.Errorf("config = %s, want the explicit server", body)
+	}
+	_ = spec
+}
+
+// Finalize takes a fullOutput parameter. It used to discard it, so a caller
+// that collected the output and passed the whole thing got an empty Result and
+// no error — the least debuggable outcome available.
+func TestClaudeFinalizeParsesOutputWhenNothingWasStreamed(t *testing.T) {
+	out := []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"OK"}]}}` + "\n" +
+		`{"type":"result","result":"OK","usage":{"input_tokens":1,"output_tokens":2}}` + "\n")
+	res, events, err := NewClaude().NewSession().Finalize(context.Background(), out, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Summary != "OK" {
+		t.Errorf("summary = %q, want OK", res.Summary)
+	}
+	var texts []string
+	for _, e := range events {
+		if e.Type == EventAgentMessage {
+			if s, _ := e.Payload["text"].(string); s != "" {
+				texts = append(texts, s)
+			}
+		}
+	}
+	if len(texts) != 1 || texts[0] != "OK" {
+		t.Errorf("texts = %v, want [OK]", texts)
+	}
+}
+
+// A caller that streamed must not get the output parsed twice.
+func TestClaudeFinalizeDoesNotDoubleParseAfterStreaming(t *testing.T) {
+	out := []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"OK"}]}}` + "\n")
+	s := NewClaude().NewSession()
+	streamed, _ := s.ParseChunk(out)
+	_, tail, _ := s.Finalize(context.Background(), out, 0)
+	if len(streamed) != 1 {
+		t.Fatalf("streamed = %d events", len(streamed))
+	}
+	if len(tail) != 0 {
+		t.Errorf("Finalize re-parsed %d event(s) the caller already had", len(tail))
+	}
+}

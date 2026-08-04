@@ -28,6 +28,19 @@ type Request struct {
 	Env             map[string]string
 	Plugins         []PluginRef    // claude --plugin-dir + .mcp.json merge
 	ExtraMCPServers map[string]any // caller-injected MCP servers, merged before plugin servers
+	// NoMCP runs with an empty MCP config instead of the user's own.
+	//
+	// An empty ExtraMCPServers map cannot express this: no servers means no
+	// --mcp-config flag, which means the CLI loads everything the developer has
+	// configured. That is right for an interactive session and wrong for using
+	// the CLI as an inference backend — booting every server took longer than
+	// the model spent thinking, and a call that can reach the operator's own
+	// MCP servers is not reproducible in any sense.
+	//
+	// Ignored when ExtraMCPServers or Plugins supply servers: asking for both
+	// none and some is a caller bug, and the explicit servers are the clearer
+	// intent.
+	NoMCP           bool
 	PermissionMode  PermissionMode // PermissionDefault | PermissionBypass
 	Sandbox         bool           // false (zero value) = headless: emit skip-sandbox/trust/git-check flags. true = run inside the CLI's own sandbox/approval flow.
 	ResumeSessionID string         // claude --resume / codex resume <id>
@@ -50,6 +63,19 @@ type Event struct {
 }
 
 // Canonical event types.
+//
+// EventAgentMessage carries more than the agent's prose. Provider lifecycle
+// frames — Claude's `system` init and its hook events, the `result` summary —
+// map here too, distinguished by Payload["role"]: "assistant" is what the model
+// said, "system" and "result" are the CLI talking about the session. One
+// "say OK" call produced eleven agent.message events, ten of them hook
+// lifecycle, so a caller collecting the answer wants:
+//
+//	if e.Type == EventAgentMessage && e.Payload["role"] == "assistant" { ... }
+//
+// Filtering on Payload["text"] being non-empty happens to work today, because
+// lifecycle frames carry "raw" instead — but that is a coincidence of the
+// current mapping, not a contract.
 const (
 	EventAgentMessage   = "agent.message"
 	EventToolCall       = "agent.tool_call"

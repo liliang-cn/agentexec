@@ -53,15 +53,21 @@ func (s *claudeSession) BuildCommand(_ context.Context, req Request) (CommandSpe
 		}
 		maps.Copy(servers, pluginServers)
 	}
-	if len(servers) > 0 && req.WorkspacePath != "" {
+	if (len(servers) > 0 || req.NoMCP) && req.WorkspacePath != "" {
 		filename := s.cfg.mcpFilename
 		if filename == "" {
 			filename = ".mcp-config.json"
 		}
 		// Best-effort: if the merged MCP config can't be written, run without it (matches the real CLI wrapper).
 		if mcpPath, err := writeMCPConfig(req.WorkspacePath, filename, servers); err == nil {
+			// The path goes before the strict flag on purpose. --mcp-config is
+			// variadic: hand it a value with the prompt next in argv and it
+			// takes the prompt as a second config path, then fails with a
+			// file-not-found naming the entire prompt. A flag after it stops
+			// that, and NoMCP would otherwise be the case that hit it, since it
+			// has nothing else to append.
 			argv = append(argv, "--mcp-config", mcpPath)
-			if s.cfg.strictMCP {
+			if s.cfg.strictMCP || req.NoMCP {
 				argv = append(argv, "--strict-mcp-config")
 			}
 		}
@@ -102,8 +108,8 @@ func (s *claudeSession) ParseChunk(chunk []byte) ([]Event, error) {
 
 func (s *claudeSession) SessionID() string { return s.sessionID }
 
-func (s *claudeSession) Finalize(_ context.Context, _ []byte, exitCode int) (Result, []Event, error) {
-	tail := mapJSONLines(s.lb.Flush(), s.mapClaudeEventWithUsage)
+func (s *claudeSession) Finalize(_ context.Context, fullOutput []byte, exitCode int) (Result, []Event, error) {
+	tail := finishOutput(s.lb, fullOutput, s.mapClaudeEventWithUsage)
 	final := s.usage
 	if !s.sawResult {
 		final.InputTokens = s.fallback.InputTokens

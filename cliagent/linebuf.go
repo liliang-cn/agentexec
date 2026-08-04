@@ -8,10 +8,17 @@ import "strings"
 // to use.
 type LineBuffer struct {
 	buf strings.Builder
+	fed bool
 }
+
+// Fed reports whether Feed has ever been called. Finalize uses it to tell a
+// caller that streamed the output from one that collected it and passed the
+// whole thing at the end.
+func (lb *LineBuffer) Fed() bool { return lb.fed }
 
 // Feed appends chunk and returns any complete lines it produced.
 func (lb *LineBuffer) Feed(chunk []byte) []string {
+	lb.fed = true
 	lb.buf.Write(chunk)
 	s := lb.buf.String()
 
