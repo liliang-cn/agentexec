@@ -27,6 +27,7 @@ type claudeSession struct {
 	usage     Usage
 	fallback  Usage
 	sawResult bool
+	failed    bool
 	sessionID string
 	summary   string
 }
@@ -116,7 +117,7 @@ func (s *claudeSession) Finalize(_ context.Context, fullOutput []byte, exitCode 
 		final.OutputTokens = s.fallback.OutputTokens
 		final.CacheTokens = s.fallback.CacheTokens
 	}
-	return Result{ExitCode: exitCode, Summary: s.summary, Usage: final}, tail, nil
+	return Result{ExitCode: exitCode, Summary: s.summary, Usage: final, Failed: s.failed}, tail, nil
 }
 
 func (s *claudeSession) mapClaudeEventWithUsage(obj map[string]any) []Event {
@@ -128,6 +129,9 @@ func (s *claudeSession) mapClaudeEventWithUsage(obj map[string]any) []Event {
 	if t, _ := obj["type"].(string); t == "result" {
 		s.sawResult = true
 		s.summary = mapString(obj, "result")
+		// subtype stays "success" on an authentication failure, so is_error is
+		// the only field that carries the verdict.
+		s.failed, _ = obj["is_error"].(bool)
 		setUsageFromObject(obj, &s.usage)
 	} else if msg, ok := obj["message"].(map[string]any); ok {
 		if model, _ := msg["model"].(string); model != "" && s.usage.Model == "" {

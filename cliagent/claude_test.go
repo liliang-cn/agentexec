@@ -253,3 +253,29 @@ func TestClaudeFinalizeDoesNotDoubleParseAfterStreaming(t *testing.T) {
 		t.Errorf("Finalize re-parsed %d event(s) the caller already had", len(tail))
 	}
 }
+
+// A revoked OAuth token makes claude write "Failed to authenticate" as an
+// assistant message, set is_error on the result frame, and exit zero. A caller
+// reading only the message and the exit code takes that for the model's answer.
+func TestClaudeResultCarriesIsError(t *testing.T) {
+	out := []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"Failed to authenticate. API Error: 401"}]}}` + "\n" +
+		`{"type":"result","subtype":"success","is_error":true,"result":"Failed to authenticate. API Error: 401"}` + "\n")
+	res, _, err := NewClaude().NewSession().Finalize(context.Background(), out, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Failed {
+		t.Error("is_error was not carried into Result.Failed")
+	}
+	if res.ExitCode != 0 {
+		t.Errorf("exit = %d; the point is that it is zero", res.ExitCode)
+	}
+}
+
+func TestClaudeHealthyResultIsNotFailed(t *testing.T) {
+	out := []byte(`{"type":"result","subtype":"success","is_error":false,"result":"OK"}` + "\n")
+	res, _, _ := NewClaude().NewSession().Finalize(context.Background(), out, 0)
+	if res.Failed {
+		t.Error("a healthy turn was marked failed")
+	}
+}

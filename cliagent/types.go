@@ -98,6 +98,23 @@ type Result struct {
 	ExitCode int
 	Summary  string
 	Usage    Usage
+	// Failed is the provider's own verdict on the turn, which is not the same
+	// as the exit code and not always visible in it.
+	//
+	// Only Claude reports one: its result frame carries is_error. Codex uses
+	// its `error` item for warnings as well as failures — a truncated skill
+	// description arrives as one — so treating that as a verdict would mark
+	// healthy turns as failed, and inventing a signal is worse than not having
+	// it. Gemini has none either. For those two this stays false and the caller
+	// is no worse off than before.
+	//
+	// A `claude` whose OAuth token has been revoked writes "Failed to
+	// authenticate" as an assistant message, sets is_error on the result frame,
+	// and exits zero. A caller reading only the message and the exit code takes
+	// an authentication failure for the model's answer — and if that answer is
+	// being written into a file, the failure is laundered into an artefact with
+	// nothing anywhere saying the model never ran.
+	Failed bool
 }
 
 // Capabilities describes which app-agnostic features a provider supports.
