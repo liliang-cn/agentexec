@@ -5,7 +5,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `github.com/liliang-cn/agentexec` is a **library-only Go module** (no `main`, no binary) that
-builds, invokes, and parses the **Claude Code**, **Codex**, **Gemini** and **cursor-agent** CLIs. It was extracted
+builds, invokes, and parses agent CLIs: **Claude Code**, **Codex**, **Gemini**, **cursor-agent**,
+**Qwen Code**, **Kimi CLI**, **opencode**, **GitHub Copilot CLI**, **goose**, **pi**, **agy**,
+**Hermes** and **aider**. It was extracted
 from near-duplicate `internal/provider` packages in two apps so they could share one
 implementation instead of forking it.
 
@@ -17,9 +19,11 @@ Three packages, the root one being the library proper:
 
 - `.` (package `agentexec`) — command construction, stream-json/JSONL parsing, usage accounting,
   `LineBuffer`, plugin MCP config merging, and discovery (`Discover` / `RegistryFrom` in
-  `discover.go`: which of the four CLIs are on PATH, and a registry bound to their binaries).
-  `cursor.go` is a claude session with only `BuildCommand` replaced — cursor-agent's stream-json
-  is Claude Code's dialect frame for frame.
+  `discover.go`: which of the known CLIs are on PATH, and a registry bound to their binaries).
+  `cursor.go` and `qwen.go` are claude sessions with only `BuildCommand` replaced — both CLIs'
+  stream-json is Claude Code's dialect frame for frame. `text.go` is the provider for CLIs that
+  answer in prose (`NewText` with an argv template; `NewAider` is one with aider's flags filled
+  in), and `hermes.go` is a text session plus the JSON usage file hermes writes on request.
 - `pty/` — a provider-agnostic PTY runner (only external dep: `github.com/creack/pty`).
 - `hooks/` — Claude Code / Codex hook payload parsing, transcript reading, hook installation.
   It does not import `agentexec`.
@@ -85,8 +89,24 @@ returns an empty `Result` for the collect-then-finalize caller.
 | Session id | `session_id` | `thread_id` | none | `session_id` (claude dialect) |
 | MCP / plugins | yes | — | — | — |
 
+| | qwen | kimi | opencode | copilot | goose | pi | agy | hermes |
+|---|---|---|---|---|---|---|---|---|
+| `SystemPrompt` | `--append-system-prompt` | prepended | prepended | prepended | `--system` | `--append-system-prompt` | prepended | prepended |
+| Bypass | `--yolo` | implied by `--print` | `--auto` | `--yolo` | env `GOOSE_MODE=auto` | none needed | `--dangerously-skip-permissions` | implied by `--oneshot` |
+| Headless (`Sandbox` false) | — | — | — | `--allow-all-tools --no-ask-user` | — | — | — | — |
+| Model | `--model` | `--model` | `--model` | `--model` | env `GOOSE_MODEL` | `--model` | `--model` | `--model` |
+| Session id | `session_id` | none | `sessionID` | `result.sessionId` | banner line | `session.id` | `conversation_id` | usage file |
+| Verdict | `is_error` | none | `error` frame | `result.exitCode` | none | `stopReason:"error"` | `result.status`/`error` | usage file `failed` |
+
 `Request.Sandbox` is deliberately inverted: the **zero value means headless**, emitting the
 skip-sandbox/skip-trust/skip-git-check flags. `true` means run inside the CLI's own approval flow.
+
+Per-CLI traps that the argv encodes (each was hit once): agy's `--print` takes the next argument
+as its prompt even when it is a flag, so `--print <prompt>` goes last; copilot's `--resume` has an
+optional value and must be written `--resume=ID`; kimi's errors ("LLM not set") are plain text on
+stdout with exit 0; goose prints its session id only in the ASCII banner; pi reads stdin to EOF
+before starting when stdin is not a terminal. The design record with the recorded frames is
+`docs/superpowers/specs/2026-09-05-more-agent-clis-design.md`.
 
 ## Non-obvious invariants (each is a bug that was already paid for)
 

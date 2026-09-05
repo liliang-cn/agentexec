@@ -1,9 +1,10 @@
 # agentexec
 
-What `os/exec` is to processes, `agentexec` is to agent CLIs: run the **Claude
-Code**, **Codex**, **Gemini** and **cursor-agent** CLIs from Go — build the
-argv, parse what they stream back, and get one canonical event and result
-shape out the other end.
+What `os/exec` is to processes, `agentexec` is to agent CLIs: run **Claude
+Code**, **Codex**, **Gemini**, **cursor-agent**, **Qwen Code**, **Kimi CLI**,
+**opencode**, **GitHub Copilot CLI**, **goose**, **pi**, **agy**, **Hermes**
+and **aider** from Go — build the argv, parse what they stream back, and get
+one canonical event and result shape out the other end.
 
 The CLIs are the most capable agent runtimes most people already have installed
 — and each one takes different flags, streams a different JSON dialect, and
@@ -87,7 +88,7 @@ configured with an allowlist that excludes it.
 
 ## Discovery
 
-Which of the four are on this machine, and a registry ready to run them:
+Which of the thirteen are on this machine, and a registry ready to run them:
 
 ```go
 found := agentexec.Discover(nil)                       // []Installed: Name, Binary, Version, Streaming, Resume
@@ -96,11 +97,34 @@ reg := agentexec.RegistryFrom(found, agentexec.WithMCPConfig(".app-mcp.json", tr
 
 The map argument overrides a binary path per name and admits aliases:
 `{"claude-work": "/opt/claude-beta"}` is listed as `claude-work` and driven
-as claude. A name that matches none of the four dialects is dropped.
+as claude. A name that matches none of the known dialects is dropped.
 
 `Installed` means the binary exists. Whether the account behind it is still
 signed in is only knowable by running it — `Version` comes from `--version`,
 which every one of them answers even with an expired login.
+
+## Which CLI speaks what
+
+| CLI | constructor | headless argv | stream | session id | verdict |
+|---|---|---|---|---|---|
+| claude | `NewClaude` | `claude --print --output-format stream-json` | Claude dialect | `session_id` | `is_error` |
+| codex | `NewCodex` | `codex exec --json` | JSONL items | `thread_id` | none |
+| gemini | `NewGemini` | `gemini --prompt … --output-format stream-json` | gemini | none | none |
+| cursor-agent | `NewCursor` | `cursor-agent --print --output-format stream-json` | Claude dialect | `session_id` | `is_error` |
+| qwen | `NewQwen` | `qwen --output-format stream-json <prompt>` | Claude dialect | `session_id` | `is_error` |
+| kimi | `NewKimi` | `kimi --print --output-format stream-json --prompt …` | one chat message per line | none | none |
+| opencode | `NewOpencode` | `opencode run --format json <prompt>` | `{type, sessionID, part}` | `sessionID` | `error` frame |
+| copilot | `NewCopilot` | `copilot --output-format json --allow-all-tools --prompt …` | `{type:"area.event", data}` | `result.sessionId` | `result.exitCode` |
+| goose | `NewGoose` | `goose run --output-format stream-json --text …` | `{type:"message"}` + `complete` | banner line | none |
+| pi | `NewPi` | `pi --print --mode json <prompt>` | agent-core events | `session.id` | `stopReason:"error"` |
+| agy | `NewAgy` | `agy --output-format stream-json --print …` | `{event, <event>:{…}}` | `conversation_id` | `result.status` |
+| hermes | `NewHermes` | `hermes --usage-file … --oneshot …` | plain text + usage file | usage file | usage file `failed` |
+| aider | `NewAider` | `aider --message … --yes-always …` | plain text | none | none |
+
+The last two are text providers. `NewText` builds one for any other CLI that
+answers in prose: `WithBinary`, `WithArgv("--run", "{prompt}")` and optionally
+`WithModelFlag("--model")`. Every output line is a `terminal.output` event and
+`Finalize` adds one assistant-role `agent.message` holding the whole answer.
 
 ## Four behaviours worth knowing before you rely on them
 
@@ -111,9 +135,10 @@ does not have to keep happening.
 revoked writes "Failed to authenticate" as an assistant message, sets
 `is_error` on its result frame, and **exits zero**. Read only the message and
 the exit code and you write an authentication failure into a file as if it were
-the model's answer. Only Claude reports this verdict; Codex's `error` item also
-carries warnings, so mapping it would mark healthy turns failed, and Gemini has
-no signal at all — for those two `Failed` stays false rather than being invented.
+the model's answer. `Failed` is read only where the CLI states a verdict (see
+the table above); Codex's `error` item also carries warnings, so mapping it
+would mark healthy turns failed, and Gemini, kimi, goose and aider have no
+signal at all — for those `Failed` stays false rather than being invented.
 
 **Filter `agent.message` by role.** Provider lifecycle frames — Claude's
 `system` init, its hook events, the `result` summary — map onto

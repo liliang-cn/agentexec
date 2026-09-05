@@ -26,7 +26,7 @@ import (
 
 // Installed is one agent CLI found on this machine.
 type Installed struct {
-	Name      string `json:"name"`              // "claude", "codex", "gemini", "cursor-agent", or an alias
+	Name      string `json:"name"`              // a key of builtins ("claude", "codex", ...), or an alias
 	Binary    string `json:"binary"`            // resolved absolute path
 	Version   string `json:"version,omitempty"` // best effort; "" when it could not be asked
 	Streaming bool   `json:"streaming"`
@@ -43,10 +43,19 @@ const versionTimeout = 2 * time.Second
 type dialect string
 
 const (
-	dialectClaude dialect = "claude"
-	dialectCodex  dialect = "codex"
-	dialectGemini dialect = "gemini"
-	dialectCursor dialect = "cursor-agent"
+	dialectClaude   dialect = "claude"
+	dialectCodex    dialect = "codex"
+	dialectGemini   dialect = "gemini"
+	dialectCursor   dialect = "cursor-agent"
+	dialectQwen     dialect = "qwen"
+	dialectKimi     dialect = "kimi"
+	dialectOpencode dialect = "opencode"
+	dialectCopilot  dialect = "copilot"
+	dialectGoose    dialect = "goose"
+	dialectPi       dialect = "pi"
+	dialectAgy      dialect = "agy"
+	dialectHermes   dialect = "hermes"
+	dialectAider    dialect = "aider"
 )
 
 // traits are the two things about an agent a caller can act on before running
@@ -58,14 +67,49 @@ type traits struct {
 	resume    bool
 }
 
-// builtins is the set of CLIs this library has a provider for. Gemini's
-// stream-json carries no session id at all — its session returns "" from
-// SessionID() — so resume is false for it rather than optimistic.
+// builtins is the set of CLIs this library has a provider for. resume is true
+// only where SessionID() can actually hand an id back: gemini's stream-json
+// carries none, kimi prints none, aider has no sessions, so those are false
+// rather than optimistic.
 var builtins = map[string]traits{
 	"claude":       {dialect: dialectClaude, streaming: true, resume: true},
 	"codex":        {dialect: dialectCodex, streaming: true, resume: true},
 	"gemini":       {dialect: dialectGemini, streaming: true, resume: false},
 	"cursor-agent": {dialect: dialectCursor, streaming: true, resume: true},
+	"qwen":         {dialect: dialectQwen, streaming: true, resume: true},
+	"kimi":         {dialect: dialectKimi, streaming: true, resume: false},
+	"opencode":     {dialect: dialectOpencode, streaming: true, resume: true},
+	"copilot":      {dialect: dialectCopilot, streaming: true, resume: true},
+	"goose":        {dialect: dialectGoose, streaming: true, resume: true},
+	"pi":           {dialect: dialectPi, streaming: true, resume: true},
+	"agy":          {dialect: dialectAgy, streaming: true, resume: true},
+	"hermes":       {dialect: dialectHermes, streaming: true, resume: true},
+	"aider":        {dialect: dialectAider, streaming: true, resume: false},
+}
+
+// dialectKeys is the substring pass of resolveTraits, in match order. Order
+// matters where one name is inside another: "copilot" contains "pi", so
+// "pi" must come after it or every copilot alias would be driven as pi.
+var dialectKeys = []string{
+	"cursor", "claude", "codex", "gemini", "qwen", "kimi", "opencode",
+	"copilot", "goose", "hermes", "aider", "agy", "pi",
+}
+
+// constructors builds the provider for a dialect.
+var constructors = map[dialect]func(...Option) Provider{
+	dialectClaude:   NewClaude,
+	dialectCodex:    NewCodex,
+	dialectGemini:   NewGemini,
+	dialectCursor:   NewCursor,
+	dialectQwen:     NewQwen,
+	dialectKimi:     NewKimi,
+	dialectOpencode: NewOpencode,
+	dialectCopilot:  NewCopilot,
+	dialectGoose:    NewGoose,
+	dialectPi:       NewPi,
+	dialectAgy:      NewAgy,
+	dialectHermes:   NewHermes,
+	dialectAider:    NewAider,
 }
 
 // Discover finds the agent CLIs on PATH. overrides maps a name to an explicit
@@ -120,15 +164,8 @@ func RegistryFrom(installed []Installed, opts ...Option) *Registry {
 			continue
 		}
 		all := append([]Option{WithName(a.Name), WithBinary(a.Binary)}, opts...)
-		switch t.dialect {
-		case dialectClaude:
-			reg.Register(NewClaude(all...))
-		case dialectCodex:
-			reg.Register(NewCodex(all...))
-		case dialectGemini:
-			reg.Register(NewGemini(all...))
-		case dialectCursor:
-			reg.Register(NewCursor(all...))
+		if build, ok := constructors[t.dialect]; ok {
+			reg.Register(build(all...))
 		}
 	}
 	return reg
@@ -178,7 +215,7 @@ func resolveTraits(name, binary string) (traits, bool) {
 		return t, true
 	}
 	haystack := strings.ToLower(name + " " + filepath.Base(binary))
-	for _, key := range []string{"cursor", "claude", "codex", "gemini"} {
+	for _, key := range dialectKeys {
 		if !strings.Contains(haystack, key) {
 			continue
 		}

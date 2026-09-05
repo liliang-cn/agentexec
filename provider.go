@@ -53,6 +53,8 @@ type providerConfig struct {
 	mcpFilename  string   // merged MCP config filename written under WorkspacePath
 	strictMCP    bool     // append the provider's strict-mcp flag when a config is written
 	allowedModes []string // when non-empty, BuildCommand validates Request.Mode against this
+	argv         []string // text providers: argv template, "{prompt}" marks where the prompt goes
+	modelFlag    string   // text providers: flag the model is passed behind, "" for none
 }
 
 // Option configures a provider constructor.
@@ -86,6 +88,18 @@ func WithMCPConfig(filename string, strict bool) Option {
 func WithAllowedModes(modes []string) Option {
 	return func(c *providerConfig) { c.allowedModes = append([]string(nil), modes...) }
 }
+
+// WithArgv sets a text provider's argument template. The argument containing
+// "{prompt}" has the prompt substituted in; without one the prompt is appended
+// last. Dialect providers know their own argv and ignore this.
+func WithArgv(args ...string) Option {
+	return func(c *providerConfig) { c.argv = append([]string(nil), args...) }
+}
+
+// WithModelFlag names the flag a text provider passes the model behind, as in
+// WithModelFlag("--model"). Without one the model is dropped, because a text
+// CLI has no flag this library could guess.
+func WithModelFlag(flag string) Option { return func(c *providerConfig) { c.modelFlag = flag } }
 
 // resolveOptions applies opts onto a config defaulting name+binary to def.
 func resolveOptions(def string, opts []Option) providerConfig {

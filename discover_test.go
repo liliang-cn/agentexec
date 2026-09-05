@@ -104,16 +104,39 @@ func TestDiscoverPlacesAnAliasOntoItsRealDialect(t *testing.T) {
 	}
 }
 
+func TestResolveTraitsSubstringOrder(t *testing.T) {
+	// "copilot" contains "pi"; the longer key must win.
+	for alias, want := range map[string]dialect{
+		"copilot-work": dialectCopilot,
+		"pi-nightly":   dialectPi,
+		"qwen-beta":    dialectQwen,
+		"my-kimi":      dialectKimi,
+		"opencode2":    dialectOpencode,
+		"goose-dev":    dialectGoose,
+		"hermes-2":     dialectHermes,
+		"aider-main":   dialectAider,
+		"agy-canary":   dialectAgy,
+	} {
+		got, ok := resolveTraits(alias, "/opt/bin/"+alias)
+		if !ok || got.dialect != want {
+			t.Errorf("%s -> %v (ok=%v), want %s", alias, got.dialect, ok, want)
+		}
+	}
+}
+
 func TestRegistryFromBuildsARunnerForEveryDiscoveredAgent(t *testing.T) {
 	isolatePATH(t)
 	dir := t.TempDir()
-	overrides := map[string]string{
-		"claude":       writeFakeCLI(t, dir, "claude", "#!/bin/sh\nexit 0\n"),
-		"codex":        writeFakeCLI(t, dir, "codex", "#!/bin/sh\nexit 0\n"),
-		"gemini":       writeFakeCLI(t, dir, "gemini", "#!/bin/sh\nexit 0\n"),
-		"cursor-agent": writeFakeCLI(t, dir, "cursor-agent", "#!/bin/sh\nexit 0\n"),
+	// Every builtin, so a dialect added to the table without a constructor
+	// fails here rather than at a caller's Get.
+	overrides := map[string]string{}
+	for name := range builtins {
+		overrides[name] = writeFakeCLI(t, dir, name, "#!/bin/sh\nexit 0\n")
 	}
 	reg := RegistryFrom(Discover(overrides))
+	if got := reg.Names(); len(got) != len(builtins) {
+		t.Fatalf("registry has %d providers for %d builtins: %v", len(got), len(builtins), got)
+	}
 
 	for name, binary := range overrides {
 		provider, err := reg.Get(name)

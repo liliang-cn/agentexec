@@ -1,5 +1,7 @@
 // Package agentexec provides an app-agnostic core for building, invoking, and
-// parsing the Claude Code and Codex (and Gemini) CLIs. It contains command
+// parsing agent CLIs: Claude Code, Codex, Gemini, cursor-agent, Qwen Code,
+// Kimi CLI, opencode, GitHub Copilot CLI, goose, pi, agy, Hermes and aider, plus
+// a text provider for any other CLI that answers in prose. It contains command
 // construction, stream-json / JSONL parsing, usage accounting, a line buffer,
 // and plugin MCP config helpers — with no business logic, app config, or
 // transport baked in. App-specific concerns are injected by the caller.
