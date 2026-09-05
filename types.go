@@ -1,9 +1,9 @@
-// Package cliagent provides an app-agnostic core for building, invoking, and
+// Package agentexec provides an app-agnostic core for building, invoking, and
 // parsing the Claude Code and Codex (and Gemini) CLIs. It contains command
 // construction, stream-json / JSONL parsing, usage accounting, a line buffer,
 // and plugin MCP config helpers — with no business logic, app config, or
 // transport baked in. App-specific concerns are injected by the caller.
-package cliagent
+package agentexec
 
 import "context"
 

@@ -1,4 +1,4 @@
-package cliagent
+package agentexec
 
 func findEvent(events []Event, typ string) *Event {
 	for i := range events {

@@ -16,7 +16,7 @@ import (
 	"github.com/creack/pty"
 )
 
-// Command describes a process to run under a PTY. It maps from cliagent.CommandSpec.
+// Command describes a process to run under a PTY. It maps from agentexec.CommandSpec.
 type Command struct {
 	Argv    []string
 	Env     []string // "KEY=VALUE" overrides applied on top of os.Environ()

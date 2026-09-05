@@ -1,4 +1,4 @@
-package cliagent
+package agentexec
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 )
 
 // ErrUnsupportedMode is returned by BuildCommand when Request.Mode is not allowed.
-var ErrUnsupportedMode = errors.New("cliagent: unsupported mode")
+var ErrUnsupportedMode = errors.New("agentexec: unsupported mode")
 
 // Registry maps provider names to Providers.
 type Registry struct {
@@ -29,7 +29,7 @@ func (r *Registry) Register(p Provider) {
 func (r *Registry) Get(name string) (Provider, error) {
 	p, ok := r.providers[name]
 	if !ok {
-		return nil, fmt.Errorf("cliagent: no provider registered for %q", name)
+		return nil, fmt.Errorf("agentexec: no provider registered for %q", name)
 	}
 	return p, nil
 }

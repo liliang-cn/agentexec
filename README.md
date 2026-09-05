@@ -1,8 +1,8 @@
-# agentcli
+# agentexec
 
-Drive the **Claude Code**, **Codex** and **Gemini** CLIs from Go: build the argv,
-parse what they stream back, and get one canonical event and result shape out
-the other end.
+What `os/exec` is to processes, `agentexec` is to agent CLIs: run the **Claude
+Code**, **Codex** and **Gemini** CLIs from Go — build the argv, parse what they
+stream back, and get one canonical event and result shape out the other end.
 
 The CLIs are the most capable agent runtimes most people already have installed
 — and each one takes different flags, streams a different JSON dialect, and
@@ -22,7 +22,7 @@ No app config, no transport, no business logic, no opinion about where output
 goes. Everything app-specific is injected by the caller.
 
 ```sh
-go get github.com/liliang-cn/agentcli
+go get github.com/liliang-cn/agentexec
 ```
 
 Requires Go 1.25. Only dependency: `github.com/creack/pty`.
@@ -32,12 +32,12 @@ Requires Go 1.25. Only dependency: `github.com/creack/pty`.
 One turn, end to end:
 
 ```go
-sess := cliagent.NewClaude().NewSession()
+sess := agentexec.NewClaude().NewSession()
 
-spec, err := sess.BuildCommand(ctx, cliagent.Request{
+spec, err := sess.BuildCommand(ctx, agentexec.Request{
 	Prompt:         "summarise README.md in one line",
 	WorkspacePath:  "/path/to/repo",
-	PermissionMode: cliagent.PermissionBypass,
+	PermissionMode: agentexec.PermissionBypass,
 	NoMCP:          true,
 })
 if err != nil {
@@ -51,7 +51,7 @@ res, err := pty.Run(ctx, pty.Command{
 	events, _ := sess.ParseChunk(chunk)
 	for _, e := range events {
 		// Lifecycle frames land on agent.message too — role separates them.
-		if e.Type == cliagent.EventAgentMessage && e.Payload["role"] == "assistant" {
+		if e.Type == agentexec.EventAgentMessage && e.Payload["role"] == "assistant" {
 			answer.WriteString(e.Payload["text"].(string))
 		}
 	}
@@ -70,10 +70,10 @@ out, _, err := sess.Finalize(ctx, res.Output, res.ExitCode)
 Providers register into a `Registry` when an app supports more than one:
 
 ```go
-reg := cliagent.NewRegistry()
-reg.Register(cliagent.NewClaude())
-reg.Register(cliagent.NewCodex(cliagent.WithBinary("/opt/homebrew/bin/codex")))
-reg.Register(cliagent.NewGemini())
+reg := agentexec.NewRegistry()
+reg.Register(agentexec.NewClaude())
+reg.Register(agentexec.NewCodex(agentexec.WithBinary("/opt/homebrew/bin/codex")))
+reg.Register(agentexec.NewGemini())
 
 p, err := reg.Get("codex")          // reg.Names() is sorted
 caps := p.Capabilities()            // Streaming, Resume, Plugins, MCP, SupportsPTY, …

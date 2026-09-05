@@ -1,4 +1,4 @@
-package cliagent
+package agentexec
 
 import (
 	"reflect"
