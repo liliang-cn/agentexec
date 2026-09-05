@@ -44,7 +44,7 @@ func Run(ctx context.Context, cmd Command, onChunk func([]byte)) (Result, error)
 	c.Dir = cmd.WorkDir
 	c.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
-	ptmx, err := pty.Start(c)
+	ptmx, pts, err := startPTY(c)
 	if err != nil {
 		return Result{}, err
 	}
@@ -107,6 +107,10 @@ func Run(ctx context.Context, cmd Command, onChunk func([]byte)) (Result, error)
 
 	waitErr := c.Wait()
 	close(done)
+	// Releasing the slave is what ends the reader, so it happens here rather
+	// than on a defer. Output already buffered survives it and is drained
+	// before the reader sees EOF.
+	_ = pts.Close()
 	wg.Wait()
 
 	res := Result{Output: fullBuf.Bytes()}
@@ -124,4 +128,36 @@ func Run(ctx context.Context, cmd Command, onChunk func([]byte)) (Result, error)
 		return res, waitErr
 	}
 	return res, nil
+}
+
+// startPTY starts c under a new pseudo-terminal and hands back both ends. The
+// slave comes back still open: the caller owns it, and must not close it until
+// it has finished reading the master.
+//
+// pty.Start closes the parent's slave as soon as the child is running, which
+// leaves the child holding the only one. When it exits, that is the terminal's
+// last close: the kernel waits briefly for pending output to drain, then gives
+// up, tears the terminal down, and drops whatever is still buffered. A command
+// short-lived enough to beat the first read therefore produces nothing at all —
+// zero exit status, no error, empty output, nothing anywhere saying the output
+// was ever there. Keeping a slave open means the child's exit is never the last
+// close, so nothing is torn down while there is still something to read.
+func startPTY(c *exec.Cmd) (ptmx, pts *os.File, err error) {
+	ptmx, pts, err = pty.Open()
+	if err != nil {
+		return nil, nil, err
+	}
+	c.Stdin, c.Stdout, c.Stderr = pts, pts, pts
+	if c.SysProcAttr == nil {
+		c.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	c.SysProcAttr.Setsid = true
+	// Ctty is left at 0, which is c.Stdin, matching what pty.Start does.
+	c.SysProcAttr.Setctty = true
+	if err := c.Start(); err != nil {
+		_ = ptmx.Close()
+		_ = pts.Close()
+		return nil, nil, err
+	}
+	return ptmx, pts, nil
 }
