@@ -1,8 +1,9 @@
 # agentexec
 
 What `os/exec` is to processes, `agentexec` is to agent CLIs: run the **Claude
-Code**, **Codex** and **Gemini** CLIs from Go — build the argv, parse what they
-stream back, and get one canonical event and result shape out the other end.
+Code**, **Codex**, **Gemini** and **cursor-agent** CLIs from Go — build the
+argv, parse what they stream back, and get one canonical event and result
+shape out the other end.
 
 The CLIs are the most capable agent runtimes most people already have installed
 — and each one takes different flags, streams a different JSON dialect, and
@@ -83,6 +84,23 @@ Options: `WithBinary`, `WithName`, `WithBaseEnv`, `WithModelEnv`,
 `WithMCPConfig`, `WithAllowedModes`. `Request.Mode` is free-form and
 app-defined; `BuildCommand` returns `ErrUnsupportedMode` when the provider was
 configured with an allowlist that excludes it.
+
+## Discovery
+
+Which of the four are on this machine, and a registry ready to run them:
+
+```go
+found := agentexec.Discover(nil)                       // []Installed: Name, Binary, Version, Streaming, Resume
+reg := agentexec.RegistryFrom(found, agentexec.WithMCPConfig(".app-mcp.json", true))
+```
+
+The map argument overrides a binary path per name and admits aliases:
+`{"claude-work": "/opt/claude-beta"}` is listed as `claude-work` and driven
+as claude. A name that matches none of the four dialects is dropped.
+
+`Installed` means the binary exists. Whether the account behind it is still
+signed in is only knowable by running it — `Version` comes from `--version`,
+which every one of them answers even with an expired login.
 
 ## Four behaviours worth knowing before you rely on them
 

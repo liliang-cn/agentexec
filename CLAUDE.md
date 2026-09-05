@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 `github.com/liliang-cn/agentexec` is a **library-only Go module** (no `main`, no binary) that
-builds, invokes, and parses the **Claude Code**, **Codex**, and **Gemini** CLIs. It was extracted
+builds, invokes, and parses the **Claude Code**, **Codex**, **Gemini** and **cursor-agent** CLIs. It was extracted
 from near-duplicate `internal/provider` packages in two apps so they could share one
 implementation instead of forking it.
 
@@ -16,7 +16,10 @@ Package name equals module name, so the import is one line and the call site rea
 Three packages, the root one being the library proper:
 
 - `.` (package `agentexec`) — command construction, stream-json/JSONL parsing, usage accounting,
-  `LineBuffer`, plugin MCP config merging.
+  `LineBuffer`, plugin MCP config merging, and discovery (`Discover` / `RegistryFrom` in
+  `discover.go`: which of the four CLIs are on PATH, and a registry bound to their binaries).
+  `cursor.go` is a claude session with only `BuildCommand` replaced — cursor-agent's stream-json
+  is Claude Code's dialect frame for frame.
 - `pty/` — a provider-agnostic PTY runner (only external dep: `github.com/creack/pty`).
 - `hooks/` — Claude Code / Codex hook payload parsing, transcript reading, hook installation.
   It does not import `agentexec`.
@@ -74,12 +77,13 @@ returns an empty `Result` for the collect-then-finalize caller.
 
 ### Provider divergences worth knowing
 
-| | claude | codex | gemini |
-|---|---|---|---|
-| `SystemPrompt` | `--append-system-prompt` | prepended to the prompt | prepended to the prompt |
-| Bypass | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo` |
-| Session id | `session_id` | `thread_id` | none |
-| MCP / plugins | yes | — | — |
+| | claude | codex | gemini | cursor-agent |
+|---|---|---|---|---|
+| `SystemPrompt` | `--append-system-prompt` | prepended to the prompt | prepended to the prompt | prepended to the prompt |
+| Bypass | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | `--yolo` | `--force` |
+| Headless (`Sandbox` false) | — | `--skip-git-repo-check` | `--skip-trust` | `--trust --sandbox disabled` |
+| Session id | `session_id` | `thread_id` | none | `session_id` (claude dialect) |
+| MCP / plugins | yes | — | — | — |
 
 `Request.Sandbox` is deliberately inverted: the **zero value means headless**, emitting the
 skip-sandbox/skip-trust/skip-git-check flags. `true` means run inside the CLI's own approval flow.
@@ -122,6 +126,11 @@ real tags (no local `replace`), so a path change only reaches them once a tag is
 
 - `~/Things/AI/projects/anywhere/anywhered`
 - `~/Things/dev/apps/Agent` (`agent-as-a-service`)
+- `~/Things/AI/base/agent-go` (`pkg/agent/builtin_tools_cliagent.go` — `cli_agent_list` /
+  `cli_agent_run`; it calls `Discover` and `RegistryFrom` and owns nothing about the CLIs itself.
+  Discovery and the cursor provider used to live there as `pkg/agent/cliagents`; they moved here
+  because which CLIs exist and how to drive them is this library's question, not an agent
+  framework's.)
 
 Any change to `Request`, `Event` shapes, or emitted argv ripples into both. `docs/superpowers/`
 holds the design specs and migration plans that produced this module; they predate the rename and
