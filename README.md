@@ -136,6 +136,31 @@ Installation is a merge, not a write: other settings survive, and re-running
 with the same command does not create duplicate hook groups. Default events are
 `PreToolUse`, `PostToolUse`, `Notification`, `Stop`, `UserPromptSubmit`.
 
+## Delegating over MCP
+
+`cmd/agentexec-mcp` is an MCP server built on this library: it lets one agent
+hand a whole task to a different agent CLI. It is a separate Go module, so
+depending on the library does not drag the MCP SDK in with it.
+
+```sh
+go install github.com/liliang-cn/agentexec/cmd/agentexec-mcp@latest
+agentexec-mcp -workspace /path/to/repo
+```
+
+It dispatches rather than blocks. `agent_start` returns a run id at once and the
+delegate runs in the background under a bounded worker pool, so a twenty-minute
+task cannot meet the client's tool timeout and several delegations can run at
+the same time. Progress arrives as `resources/updated` on
+`agentexec://runs/{id}`; a subscriber re-reads that resource for the state, the
+usage, and everything the delegate has said so far. `agent_result` collects the
+outcome, `agent_status` lists the runs, `agent_cancel` stops one.
+
+Two things are decided for you, because getting them wrong is expensive:
+`Request.NoMCP` is always on — a delegate that inherited your MCP config would
+start this server again, and so would its delegate — and the workspace comes
+from `-workspace`, never from the calling model, because the delegate runs with
+permissions bypassed and can write.
+
 ## Testing
 
 ```sh

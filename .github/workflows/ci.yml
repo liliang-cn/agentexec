@@ -41,3 +41,16 @@ jobs:
 
       - name: Test
         run: go test -race -count=1 ./...
+
+      # cmd/agentexec-mcp is its own module, so the root's ./... does not
+      # reach it and it would rot unnoticed.
+      - name: Build, vet and test the MCP server
+        working-directory: cmd/agentexec-mcp
+        run: |
+          go build ./...
+          go vet ./...
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed:"; echo "$unformatted"; exit 1
+          fi
+          go test -race -count=1 ./...

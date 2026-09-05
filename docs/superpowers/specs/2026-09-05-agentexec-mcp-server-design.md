@@ -24,9 +24,9 @@ queued, and progress is pushed as it happens.
 
 ## What "pushed" can and cannot mean
 
-MCP has no way to interrupt the calling model mid-turn. Both mechanisms below
-reach the *client* — its UI, its logs, and any subscriber — but Claude Code does
-not wake the model on a notification. The delegating model still collects the
+MCP has no way to interrupt the calling model mid-turn. A notification reaches
+the *client* — its UI and any subscriber — but Claude Code does not wake the
+model on one. The delegating model still collects the
 outcome with one `agent_result` call.
 
 This is a property of the protocol, not a shortcoming of the design, and it is
@@ -34,13 +34,20 @@ written down here so nobody re-litigates it later. What the shape does buy is
 real: no tool call held open, delegations running in parallel, no timeout
 truncating a long run, and a human watching the sub-agent work in real time.
 
-Two channels, because they answer different questions:
+One channel: **`agentexec://runs/{id}` as a resource, plus `resources/updated`**.
+Every line the delegate produces triggers a notification; the subscriber re-reads
+the resource and gets state, usage, and every event so far in one go.
 
-- **`notifications/message`** (logging) — every assistant message and tool call
-  as it happens. For a human and the client's log.
-- **`agentexec://runs/{id}` as a resource, plus `resources/updated`** — for a
-  client that wants the current state rather than a stream of lines. The
-  protocol-correct way to follow evolving state.
+The design started with two, the second being `notifications/message` (logging)
+carrying the text inline. That was dropped on contact with the protocol:
+logging is deprecated as of protocol version 2026-07-28 (SEP-2577), and the Go
+SDK's `ServerSession.Log` silently sends nothing until a client happens to call
+`logging/setLevel`. A progress channel that is silent by default, on a feature
+being removed, is not worth the code. The resource carries strictly more anyway.
+
+Note that `resources/subscribe` is refused outright unless the server supplies
+both `SubscribeHandler` and `UnsubscribeHandler`. They vet the URI rather than
+gate access — anyone who can call the tools can already see the runs.
 
 ## Tool surface
 
@@ -68,8 +75,7 @@ CLI and without a live MCP client:
 
 `runner` takes its notification sink as an interface, so its tests assert on
 what would have been pushed without an MCP session in the picture. `mcpserver`
-supplies the implementation that turns those into `notifications/message` and
-`ResourceUpdated`.
+supplies the implementation that turns those into `ResourceUpdated`.
 
 States: `queued → running → {done, failed, cancelled}`. `failed` covers both a
 non-zero exit and `Result.Failed`, which the library reports separately for a
