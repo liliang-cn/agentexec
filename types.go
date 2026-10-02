@@ -103,12 +103,13 @@ type Result struct {
 	// Failed is the provider's own verdict on the turn, which is not the same
 	// as the exit code and not always visible in it.
 	//
-	// Only Claude reports one: its result frame carries is_error. Codex uses
-	// its `error` item for warnings as well as failures — a truncated skill
-	// description arrives as one — so treating that as a verdict would mark
-	// healthy turns as failed, and inventing a signal is worse than not having
-	// it. Gemini has none either. For those two this stays false and the caller
-	// is no worse off than before.
+	// Claude reports one on its result frame (is_error); Codex on turn.failed.
+	// Codex's `error` frame is not one — it carries warnings too, a truncated
+	// skill description among them — and treating it as a verdict would mark
+	// healthy turns as failed. Kimi reports nothing and exits 0 on a turn that
+	// never reached a model, so for Kimi it is inferred from the absence of
+	// any assistant frame. Providers with no signal at all leave it false, and
+	// the caller still has ExitCode.
 	//
 	// A `claude` whose OAuth token has been revoked writes "Failed to
 	// authenticate" as an assistant message, sets is_error on the result frame,

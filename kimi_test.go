@@ -67,7 +67,9 @@ func TestKimiParsesKosongMessages(t *testing.T) {
 }
 
 func TestKimiErrorsArePlainTextLines(t *testing.T) {
-	// Recorded: no model configured. Exit 0 and a bare line, no frame.
+	// Recorded from kimi 1.3 with no model configured: a bare line and exit 0.
+	// Reading the exit code alone takes this for a turn that answered with
+	// nothing, so the absence of any assistant frame is the verdict.
 	session := NewKimi().NewSession()
 	res, tail, err := session.Finalize(context.Background(), []byte("LLM not set\n"), 0)
 	if err != nil {
@@ -77,7 +79,45 @@ func TestKimiErrorsArePlainTextLines(t *testing.T) {
 	if line == nil || line.Payload["line"] != "LLM not set" {
 		t.Fatalf("tail=%+v", tail)
 	}
-	if res.Summary != "" || res.Failed {
-		t.Fatalf("no verdict exists to read, got %+v", res)
+	if !res.Failed {
+		t.Fatalf("a turn that never reached a model reported success: %+v", res)
+	}
+	if res.Summary != "LLM not set" {
+		t.Fatalf("summary=%q, want the line that says why", res.Summary)
+	}
+}
+
+func TestKimiAnAnswerIsNotAFailure(t *testing.T) {
+	session := NewKimi().NewSession()
+	res, _, err := session.Finalize(context.Background(), []byte(`{"role":"assistant","content":"pong"}`+"\n"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Failed || res.Summary != "pong" {
+		t.Fatalf("res=%+v", res)
+	}
+}
+
+// A turn that only called tools still reached the model.
+func TestKimiAToolCallCountsAsAnAnswer(t *testing.T) {
+	session := NewKimi().NewSession()
+	frame := `{"role":"assistant","content":[],"tool_calls":[{"type":"function","id":"Shell-1","function":{"name":"Shell","arguments":"{}"}}]}`
+	res, _, err := session.Finalize(context.Background(), []byte(frame+"\n"), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Failed {
+		t.Fatalf("a tool-calling turn reported failure: %+v", res)
+	}
+}
+
+func TestKimiANonZeroExitFails(t *testing.T) {
+	session := NewKimi().NewSession()
+	res, _, err := session.Finalize(context.Background(), []byte(`{"role":"assistant","content":"partial"}`+"\n"), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Failed {
+		t.Fatalf("exit 1 reported success: %+v", res)
 	}
 }

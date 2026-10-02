@@ -13,9 +13,11 @@ import (
 //
 //   - `content` is a string when the message has exactly one text part and a
 //     list of {"type","text"} parts otherwise. Both mean the same thing.
-//   - Errors are not frames. "LLM not set" arrives as a plain text line on
-//     stdout, so it surfaces as terminal.output, and the exit code is the only
-//     verdict there is.
+//   - Errors are not frames, and do not set the exit code either. "LLM not
+//     set" arrives as a plain text line on stdout and kimi exits 0, so a turn
+//     that never reached a model looks exactly like one that answered with
+//     nothing. The verdict is therefore inferred: a turn with no assistant
+//     message at all failed, and the last plain line is why.
 //
 // `--print` implies `--yolo`, so PermissionBypass adds nothing.
 
@@ -36,6 +38,9 @@ type kimiSession struct {
 	cfg     providerConfig
 	lb      *LineBuffer
 	summary string
+	// answered is set by any assistant frame, text or tool call. A turn
+	// without one never reached a model.
+	answered bool
 }
 
 func (s *kimiSession) BuildCommand(_ context.Context, req Request) (CommandSpec, error) {
@@ -65,13 +70,21 @@ func (s *kimiSession) SessionID() string { return "" }
 
 func (s *kimiSession) Finalize(_ context.Context, fullOutput []byte, exitCode int) (Result, []Event, error) {
 	tail := finishOutput(s.lb, fullOutput, s.mapKimiEvent)
-	return Result{ExitCode: exitCode, Summary: s.summary}, tail, nil
+	res := Result{ExitCode: exitCode, Summary: s.summary}
+	if exitCode != 0 || !s.answered {
+		res.Failed = true
+		if res.Summary == "" {
+			res.Summary = lastPlainLine(fullOutput)
+		}
+	}
+	return res, tail, nil
 }
 
 func (s *kimiSession) mapKimiEvent(obj map[string]any) []Event {
 	role := mapString(obj, "role")
 	switch role {
 	case "assistant":
+		s.answered = true
 		var out []Event
 		calls, _ := obj["tool_calls"].([]any)
 		for _, c := range calls {

@@ -2,6 +2,7 @@ package agentexec
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 )
 
@@ -24,6 +25,9 @@ type codexSession struct {
 	usage    Usage
 	threadID string
 	summary  string
+	// failed is set by turn.failed, the one frame that is a verdict. The
+	// `error` frame is not: Codex sends it for warnings too.
+	failed bool
 }
 
 func (s *codexSession) BuildCommand(_ context.Context, req Request) (CommandSpec, error) {
@@ -57,7 +61,7 @@ func (s *codexSession) SessionID() string { return s.threadID }
 
 func (s *codexSession) Finalize(_ context.Context, fullOutput []byte, exitCode int) (Result, []Event, error) {
 	tail := finishOutput(s.lb, fullOutput, s.mapCodexEvent)
-	return Result{ExitCode: exitCode, Summary: s.summary, Usage: s.usage}, tail, nil
+	return Result{ExitCode: exitCode, Summary: s.summary, Usage: s.usage, Failed: s.failed}, tail, nil
 }
 
 func (s *codexSession) mapCodexEvent(obj map[string]any) []Event {
@@ -71,6 +75,12 @@ func (s *codexSession) mapCodexEvent(obj map[string]any) []Event {
 	case "turn.completed":
 		captureCodexUsage(obj, &s.usage)
 		return []Event{{Type: EventAgentMessage, Payload: map[string]any{"role": "result", "raw": obj}}}
+	case "turn.failed":
+		s.failed = true
+		if s.summary == "" {
+			s.summary = codexFailureMessage(obj)
+		}
+		return []Event{{Type: EventAgentMessage, Payload: map[string]any{"role": "error", "text": codexFailureMessage(obj), "raw": obj}}}
 	case "thread.started", "turn.started":
 		return []Event{{Type: EventAgentMessage, Payload: map[string]any{"role": "system", "raw": obj}}}
 	case "item.completed":
@@ -95,6 +105,22 @@ func (s *codexSession) mapCodexEvent(obj map[string]any) []Event {
 	default:
 		return []Event{{Type: EventAgentMessage, Payload: map[string]any{"role": t, "raw": obj}}}
 	}
+}
+
+// codexFailureMessage extracts the reason from a turn.failed frame.
+//
+// Codex nests the upstream API error as a JSON string inside error.message, so
+// the useful sentence is two levels down; when it is not, the outer message is
+// still better than nothing.
+func codexFailureMessage(obj map[string]any) string {
+	outer := mapString(mapMap(obj, "error"), "message")
+	var inner map[string]any
+	if json.Unmarshal([]byte(outer), &inner) == nil {
+		if msg := mapString(mapMap(inner, "error"), "message"); msg != "" {
+			return msg
+		}
+	}
+	return outer
 }
 
 func captureCodexUsage(obj map[string]any, into *Usage) {

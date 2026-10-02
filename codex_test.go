@@ -79,3 +79,41 @@ func TestCodexCommandExecutionIsToolCall(t *testing.T) {
 		t.Fatalf("no tool_call: %v", ev)
 	}
 }
+
+// Recorded from codex-cli 0.149.0 against a model that needs a newer CLI. The
+// `error` frame alone is not a verdict (Codex sends warnings as `error` too);
+// turn.failed is.
+func TestCodexTurnFailedIsAVerdict(t *testing.T) {
+	out := `{"type":"thread.started","thread_id":"t-1"}
+{"type":"turn.started"}
+{"type":"error","message":"{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.\"}}"}
+{"type":"turn.failed","error":{"message":"{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again.\"}}"}}
+`
+	res, _, err := NewCodex().NewSession().Finalize(context.Background(), []byte(out), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Failed {
+		t.Fatalf("turn.failed was not reported as a failure: %+v", res)
+	}
+	want := "The 'gpt-6-astra' model requires a newer version of Codex. Please upgrade to the latest app or CLI and try again."
+	if res.Summary != want {
+		t.Fatalf("summary=%q\nwant=%q", res.Summary, want)
+	}
+}
+
+// A warning-shaped error frame on a turn that then completes must stay a
+// success; this is why `error` was never treated as a verdict.
+func TestCodexAWarningErrorFrameIsNotAFailure(t *testing.T) {
+	out := `{"type":"error","message":"Skill descriptions were shortened to fit the skills context budget."}
+{"type":"item.completed","item":{"type":"agent_message","text":"pong"}}
+{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":1}}
+`
+	res, _, err := NewCodex().NewSession().Finalize(context.Background(), []byte(out), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Failed || res.Summary != "pong" {
+		t.Fatalf("res=%+v", res)
+	}
+}

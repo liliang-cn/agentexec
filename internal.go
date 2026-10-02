@@ -2,7 +2,9 @@ package agentexec
 
 import (
 	"maps"
+	"regexp"
 	"sort"
+	"strings"
 )
 
 // mergeEnv combines the provider base env and the request env into a sorted
@@ -104,3 +106,28 @@ func finishOutput(lb *LineBuffer, fullOutput []byte, mapper func(map[string]any)
 	}
 	return mapJSONLines(lb.Flush(), mapper)
 }
+
+// lastPlainLine returns the last non-empty line of output that is not a JSON
+// frame.
+//
+// For a CLI whose errors are bare text on stdout, that line is the only
+// account of why a turn failed, and a caller told only "failed" with no reason
+// has to go and rerun it by hand to find out.
+func lastPlainLine(output []byte) string {
+	lines := strings.Split(strings.ReplaceAll(string(output), "\r\n", "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(stripANSI(lines[i]))
+		if line == "" || strings.HasPrefix(line, "{") {
+			continue
+		}
+		return line
+	}
+	return ""
+}
+
+// ansiEscape matches CSI sequences, which a CLI writing to a pty sprinkles
+// through its plain-text errors (cursor-agent ends with one that re-shows the
+// cursor).
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+
+func stripANSI(s string) string { return ansiEscape.ReplaceAllString(s, "") }
