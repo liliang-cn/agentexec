@@ -62,6 +62,6 @@ func (s *qwenSession) BuildCommand(_ context.Context, req Request) (CommandSpec,
 		argv = append(argv, "--append-system-prompt", req.SystemPrompt)
 	}
 	argv = append(argv, req.ExtraArgs...)
-	argv = append(argv, req.Prompt)
+	argv = appendPrompt(argv, req.Prompt)
 	return CommandSpec{Argv: argv, Env: mergeEnv(env, req.Env), WorkDir: req.WorkspacePath}, nil
 }

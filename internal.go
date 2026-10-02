@@ -131,3 +131,13 @@ func lastPlainLine(output []byte) string {
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
 func stripANSI(s string) string { return ansiEscape.ReplaceAllString(s, "") }
+
+// appendPrompt puts the prompt last in argv. A prompt that starts with a dash
+// goes after "--": unseparated, "--deny this" was read as an unknown flag and
+// the CLI exited before doing anything.
+func appendPrompt(argv []string, prompt string) []string {
+	if strings.HasPrefix(prompt, "-") {
+		argv = append(argv, "--")
+	}
+	return append(argv, prompt)
+}

@@ -279,3 +279,18 @@ func TestClaudeHealthyResultIsNotFailed(t *testing.T) {
 		t.Error("a healthy turn was marked failed")
 	}
 }
+
+func TestClaudeAPromptThatLooksLikeAFlagStaysAPrompt(t *testing.T) {
+	spec, err := NewClaude().NewSession().BuildCommand(context.Background(), Request{Prompt: "--deny this, it is text"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := len(spec.Argv)
+	if spec.Argv[n-2] != "--" || spec.Argv[n-1] != "--deny this, it is text" {
+		t.Fatalf("argv tail %q", spec.Argv[n-2:])
+	}
+	spec, _ = NewClaude().NewSession().BuildCommand(context.Background(), Request{Prompt: "plain"})
+	if slices.Contains(spec.Argv, "--") {
+		t.Fatalf("a plain prompt got a separator: %q", spec.Argv)
+	}
+}
