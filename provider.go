@@ -79,6 +79,7 @@ func WithModelEnv(key string) Option { return func(c *providerConfig) { c.modelE
 func WithName(name string) Option { return func(c *providerConfig) { c.name = name } }
 
 // WithMCPConfig sets the merged MCP config filename written under WorkspacePath
+// (an absolute path is used as is, outside the workspace)
 // and whether to append the provider's strict-mcp flag.
 func WithMCPConfig(filename string, strict bool) Option {
 	return func(c *providerConfig) { c.mcpFilename = filename; c.strictMCP = strict }

@@ -92,7 +92,13 @@ func writeMCPConfig(dir, filename string, servers map[string]any) (string, error
 	if err != nil {
 		return "", err
 	}
-	p := filepath.Join(dir, filename)
+	// An absolute filename is used as is. Inside the workspace the agent
+	// sees the file — lists it, counts it, reads the URLs in it — so a
+	// caller whose config carries something private puts it elsewhere.
+	p := filename
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(dir, filename)
+	}
 	if err := os.WriteFile(p, b, 0o600); err != nil {
 		return "", err
 	}

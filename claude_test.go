@@ -294,3 +294,20 @@ func TestClaudeAPromptThatLooksLikeAFlagStaysAPrompt(t *testing.T) {
 		t.Fatalf("a plain prompt got a separator: %q", spec.Argv)
 	}
 }
+
+func TestClaudeAnAbsoluteMCPConfigPathStaysOutOfTheWorkspace(t *testing.T) {
+	ws, elsewhere := t.TempDir(), t.TempDir()
+	cfg := filepath.Join(elsewhere, "run.json")
+	spec, err := NewClaude(WithMCPConfig(cfg, true)).NewSession().BuildCommand(context.Background(), Request{
+		Prompt: "hi", WorkspacePath: ws, ExtraMCPServers: map[string]any{"x": map[string]any{"type": "http", "url": "http://127.0.0.1:1/x"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(spec.Argv, cfg) {
+		t.Fatalf("argv %q does not name %s", spec.Argv, cfg)
+	}
+	if entries, _ := os.ReadDir(ws); len(entries) != 0 {
+		t.Fatalf("the workspace got %v", entries)
+	}
+}
