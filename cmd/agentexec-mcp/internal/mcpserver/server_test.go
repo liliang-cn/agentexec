@@ -182,7 +182,10 @@ func TestProgressReachesASubscriberWhileRunning(t *testing.T) {
 		},
 	}
 	// Speaks, then keeps working, so a notification must arrive before the end.
-	p := &fakeProvider{argv: []string{"sh", "-c", "printf working-on-it; sleep 1"}, summary: "done"}
+	// It waits before speaking: the subscription below goes in after
+	// agent_start returns, and on a fast Linux runner a delegate that spoke at
+	// once had already said its piece by then, leaving only the final update.
+	p := &fakeProvider{argv: []string{"sh", "-c", "sleep 0.5; printf working-on-it; sleep 3"}, summary: "done"}
 	cs := connect(t, p, opts)
 	ctx := context.Background()
 
