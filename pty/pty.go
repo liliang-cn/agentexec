@@ -1,3 +1,5 @@
+//go:build !windows
+
 // Package pty runs a command under a pseudo-terminal, streaming its combined
 // output to a callback and capturing it. It knows nothing about providers.
 package pty
