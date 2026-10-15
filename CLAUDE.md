@@ -15,7 +15,7 @@ The name is the `os/exec` analogy: `os/exec` is for processes, `agentexec` is fo
 Package name equals module name, so the import is one line and the call site reads
 `agentexec.NewClaude()`.
 
-Three packages, the root one being the library proper:
+The packages, the root one being the library proper:
 
 - `.` (package `agentexec`) — command construction, stream-json/JSONL parsing, usage accounting,
   `LineBuffer`, plugin MCP config merging, and discovery (`Discover` / `RegistryFrom` in
@@ -27,6 +27,13 @@ Three packages, the root one being the library proper:
 - `pty/` — a provider-agnostic PTY runner (only external dep: `github.com/creack/pty`).
 - `hooks/` — Claude Code / Codex hook payload parsing, transcript reading, hook installation.
   It does not import `agentexec`.
+- Delivery to an agent that runs in someone's terminal (moved here from anywhered so SuperAI
+  and anywhered share one chain): `tmux/` (type into a pane, read/answer its selection menu),
+  `iterm/` (type into an iTerm2 tab by tty via AppleScript), `reach/` (is the session's tty
+  still its own and still running an agent — typing into a reused tty lands in a stranger's
+  tab) and `replies/` (park a reply for the session's next Stop hook to hand back). The chain
+  order — tmux, then reach-gated iTerm2, then park — is the caller's; none of these import
+  each other.
 
 ## Commands
 
